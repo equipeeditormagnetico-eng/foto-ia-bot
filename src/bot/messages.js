@@ -36,6 +36,19 @@ const messages = {
     `💎 B — Já quero contratar direto o pacote completo!\n\n` +
     `Qual das duas opções é a sua?`,
 
+  // Tabela de preços exibida quando o lead ainda não informou o nome
+  pricingInfoAnonymous: () =>
+    `Olá! Claro, veja nossos valores: 😊\n\n` +
+    `🆓 *Teste gratuito* — R$ 0,00\n` +
+    `1 foto para você ver como fica antes de decidir\n\n` +
+    `📸 *Pacote Essencial* — R$ 97,00\n` +
+    `6 fotos profissionais em diferentes cenários\n\n` +
+    `💎 *Pacote Completo* — R$ 149,00\n` +
+    `10 fotos profissionais em diferentes cenários\n\n` +
+    `Todos com entrega em 24h, sem sair de casa! 🏠\n\n` +
+    `Me conta seu nome para começar! 😊`,
+
+  // Tabela de preços exibida quando o lead já tem nome salvo (GET_DECISION)
   pricingInfo: (name) =>
     `Ótima pergunta, ${name}! 😊\n\n` +
     `O *teste gratuito* é 1 foto sem nenhum custo — você vê como fica antes de decidir qualquer coisa! ✅\n\n` +

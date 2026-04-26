@@ -18,8 +18,9 @@ function parseStyle(text) {
 }
 
 // Detecta se o lead está perguntando sobre preço/valor
+// Usado tanto no GET_NAME quanto no GET_DECISION
 function isPricingQuestion(text) {
-  const keywords = ['valor', 'preço', 'preco', 'quanto', 'custa', 'custo', 'como funciona', '?'];
+  const keywords = ['valor', 'preço', 'preco', 'quanto', 'custa', 'custo', 'como funciona', 'pacote', 'plano', '?'];
   return keywords.some((kw) => text.includes(kw));
 }
 
@@ -60,6 +61,14 @@ async function handleMessage(phone, rawText) {
     }
 
     case 'GET_NAME': {
+      // BUG 1 — se o lead perguntar sobre preço antes de informar o nome,
+      // exibir tabela e permanecer em GET_NAME sem salvar a mensagem como nome
+      if (isPricingQuestion(text)) {
+        console.log(`[handler] Lead ${phone} perguntou sobre preços antes de informar o nome`);
+        await sendText(phone, messages.pricingInfoAnonymous());
+        return;
+      }
+
       const name = rawText.trim();
       updateSession(phone, { name, state: 'GET_STYLE' });
       await sendText(phone, messages.askStyle(name));
@@ -81,10 +90,10 @@ async function handleMessage(phone, rawText) {
     case 'GET_DECISION': {
       const decision = parseDecision(text);
 
-      // Lead perguntou sobre preço/valor → mostrar tabela e repetir opções
+      // Lead perguntou sobre preço/valor → mostrar tabela usando nome salvo na sessão (BUG 2)
       if (decision === 'PRICING') {
         console.log(`[handler] Lead ${phone} (${session.name}) perguntou sobre preços`);
-        await sendText(phone, messages.pricingInfo(session.name));
+        await sendText(phone, messages.pricingInfo(session.name)); // session.name, nunca rawText
         return;
       }
 
