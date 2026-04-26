@@ -36,6 +36,17 @@ const messages = {
     `💎 B — Já quero contratar direto o pacote completo!\n\n` +
     `Qual das duas opções é a sua?`,
 
+  pricingInfo: (name) =>
+    `Ótima pergunta, ${name}! 😊\n\n` +
+    `O *teste gratuito* é 1 foto sem nenhum custo — você vê como fica antes de decidir qualquer coisa! ✅\n\n` +
+    `Se adorar (e vai adorar! 😄), temos dois pacotes:\n\n` +
+    `📸 *Pacote Essencial* — R$ 97,00\n` +
+    `6 fotos profissionais em diferentes cenários\n\n` +
+    `📸 *Pacote Completo* — R$ 149,00\n` +
+    `10 fotos profissionais em diferentes cenários\n\n` +
+    `Os dois incluem entrega em 24h e sem sair de casa! 🏠\n\n` +
+    `Então me diz: prefere começar pelo teste grátis (A) ou já garantir um dos pacotes (B)?`,
+
   invalidDecision: () =>
     `Não entendi bem! 😅 Responde com *A* ou *B*:\n\n` +
     `✅ A — Teste gratuito primeiro\n` +
@@ -47,9 +58,13 @@ const messages = {
     `Qualquer dúvida é só chamar aqui. 😊`,
 
   confirmHire: (name) =>
-    `Incrível, ${name}! Você tomou a melhor decisão! 🚀\n` +
-    `Nossa equipe vai entrar em contato com você em instantes para fechar tudo e já começar!\n\n` +
-    `Mal posso esperar para ver o resultado! ✨`,
+    `Incrível, ${name}! Você tomou a melhor decisão! 🚀\n\n` +
+    `Nossos pacotes disponíveis:\n\n` +
+    `📸 *Pacote Essencial* — R$ 97,00\n` +
+    `6 fotos profissionais em diferentes cenários\n\n` +
+    `💎 *Pacote Completo* — R$ 149,00\n` +
+    `10 fotos profissionais em diferentes cenários\n\n` +
+    `Nossa equipe vai entrar em contato em instantes para você escolher o pacote e já começar! ✨`,
 
   done: () =>
     `Nossa equipe já foi avisada e entrará em contato em breve! 😊\n` +
@@ -72,6 +87,9 @@ const messages = {
     `Telefone: ${phone}\n` +
     `Estilo escolhido: ${style}\n` +
     `Decisão: Quer CONTRATAR o pacote completo\n\n` +
+    `💰 Lead informado sobre os pacotes:\n` +
+    `- Essencial: R$ 97,00 (6 fotos)\n` +
+    `- Completo: R$ 149,00 (10 fotos)\n\n` +
     `💰 Entre em contato agora para fechar!`,
 };
 

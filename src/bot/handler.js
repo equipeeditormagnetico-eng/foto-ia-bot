@@ -17,13 +17,25 @@ function parseStyle(text) {
   return null;
 }
 
-// Resolve se o lead escolheu teste ou contratar
-function parseDecision(text) {
-  if (text.includes('b') || text.includes('contratar') || text.includes('pacote') ||
-      text.includes('completo') || text.includes('direto')) return 'CONTRATAR';
+// Detecta se o lead está perguntando sobre preço/valor
+function isPricingQuestion(text) {
+  const keywords = ['valor', 'preço', 'preco', 'quanto', 'custa', 'custo', 'como funciona', '?'];
+  return keywords.some((kw) => text.includes(kw));
+}
 
-  if (text.includes('a') || text.includes('teste') || text.includes('grátis') ||
-      text.includes('gratis') || text.includes('gratuito')) return 'TESTE';
+// Resolve se o lead escolheu teste ou contratar
+// Retorna: 'TESTE' | 'CONTRATAR' | 'PRICING' | null
+function parseDecision(text) {
+  // Perguntas sobre preço têm prioridade antes de checar letras isoladas
+  if (isPricingQuestion(text)) return 'PRICING';
+
+  // Opção B — contratar (checar antes do 'a' para evitar falso positivo em "pacote")
+  if (text === 'b' || text.includes('contratar') || text.includes('pacote') ||
+      text.includes('completo') || text.includes('direto') || text.includes('garantir')) return 'CONTRATAR';
+
+  // Opção A — teste gratuito
+  if (text === 'a' || text.includes('teste') || text.includes('grátis') ||
+      text.includes('gratis') || text.includes('gratuito') || text.includes('free')) return 'TESTE';
 
   return null;
 }
@@ -68,6 +80,15 @@ async function handleMessage(phone, rawText) {
 
     case 'GET_DECISION': {
       const decision = parseDecision(text);
+
+      // Lead perguntou sobre preço/valor → mostrar tabela e repetir opções
+      if (decision === 'PRICING') {
+        console.log(`[handler] Lead ${phone} (${session.name}) perguntou sobre preços`);
+        await sendText(phone, messages.pricingInfo(session.name));
+        return;
+      }
+
+      // Resposta não reconhecida → repetir opções A/B
       if (!decision) {
         await sendText(phone, messages.invalidDecision());
         return;
@@ -80,6 +101,7 @@ async function handleMessage(phone, rawText) {
         await sendText(OWNER_PHONE, messages.ownerNotifyTest(session.name, phone, session.style));
         console.log(`[handler] Lead ${phone} (${session.name}) escolheu TESTE GRATUITO`);
       } else {
+        // CONTRATAR: primeiro informa os pacotes ao lead, depois notifica o dono
         await sendText(phone, messages.confirmHire(session.name));
         await sendText(OWNER_PHONE, messages.ownerNotifyHire(session.name, phone, session.style));
         console.log(`[handler] Lead ${phone} (${session.name}) quer CONTRATAR`);
