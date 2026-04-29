@@ -36,13 +36,27 @@ app.post('/webhook', async (req, res) => {
 
     const remoteJid = key.remoteJid ?? '';
 
-    // Ignorar mensagens de grupos
+    // Número limpo — suporta @s.whatsapp.net e @lid (Meta/Instagram)
+    const phone = remoteJid
+      .replace('@s.whatsapp.net', '')
+      .replace('@lid', '');
+
+    // Detectar tipo da mensagem para logging (ignora messageContextInfo que é só metadado)
+    const messageType =
+      Object.keys(message).find((k) => k !== 'messageContextInfo') ||
+      Object.keys(message)[0] ||
+      'unknown';
+
+    // Log detalhado no início de cada evento recebido
+    const sessionForLog = getSession(phone);
+    console.log('[webhook] De:', remoteJid, '| Tipo:', messageType, '| Estado:', sessionForLog?.state ?? 'nova');
+
+    // Ignorar mensagens de grupos (@g.us)
+    // Mensagens individuais chegam como @s.whatsapp.net ou @lid (Meta/Instagram)
     if (remoteJid.endsWith('@g.us')) {
       console.log(`[webhook] Mensagem de grupo (${remoteJid}) — ignorada`);
       return;
     }
-
-    const phone = remoteJid.replace('@s.whatsapp.net', '');
 
     // ── AJUSTE 5 — Operador assume conversa automaticamente ─────────────────
     // Quando o operador responde diretamente a um lead pelo WhatsApp conectado,
@@ -79,21 +93,26 @@ app.post('/webhook', async (req, res) => {
 
     // ── Fluxo normal de leads ────────────────────────────────────────────────
 
-    // Extrair texto da mensagem (texto simples ou extended)
+    // Extrair texto da mensagem.
+    // messageContextInfo é apenas metadado (contexto de anúncio Meta/Instagram)
+    // e não interfere na extração — o texto real vem nos campos abaixo.
     const text =
       message?.conversation ||
-      message?.extendedTextMessage?.text ||
+      message?.extendedTextMessage?.text ||           // texto com contexto/citação
+      message?.buttonsResponseMessage?.selectedButtonId ||  // botão clicado
+      message?.listResponseMessage?.singleSelectReply?.selectedRowId || // lista
+      message?.templateButtonReplyMessage?.selectedId ||    // template button
       '';
 
     const isImage = !!message?.imageMessage;
 
-    // Ignorar se não for texto nem imagem (sticker, áudio, vídeo, etc.)
+    // Ignorar se não for texto nem imagem (sticker, áudio, vídeo, documento, etc.)
     if (!text && !isImage) {
-      console.log('[webhook] Mensagem sem texto nem imagem — ignorada');
+      console.log(`[webhook] Tipo "${messageType}" sem texto nem imagem — ignorado`);
       return;
     }
 
-    console.log(`[webhook] Mensagem recebida de ${phone}: ${isImage ? '[IMAGEM]' : `"${text}"`}`);
+    console.log(`[webhook] Processando de ${phone}: ${isImage ? '[IMAGEM]' : `"${text}"`}`);
     await handleMessage(phone, text, message);
 
   } catch (err) {

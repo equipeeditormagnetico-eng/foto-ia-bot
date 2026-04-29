@@ -111,8 +111,20 @@ async function handleMessage(phone, rawText, message) {
         return;
       }
 
+      // Mensagens automáticas de saudação do Meta/Instagram chegam com
+      // messageContextInfo mas o texto é extraído normalmente pelo index.js.
+      // Se por algum motivo chegarem vazias aqui, ignoramos sem quebrar o fluxo.
       const name = rawText.trim();
+      if (!name) {
+        console.log(`[handler] GET_NAME: rawText vazio — ignorado (possível saudação automática)`);
+        return;
+      }
+
       updateSession(phone, { name, state: 'GET_STYLE' });
+
+      // Log de confirmação: verifica se o estado foi realmente atualizado
+      console.log('[handler] Nome salvo:', name, '| Novo estado:', session.state);
+
       await sendText(phone, messages.askStyle(name));
       break;
     }
