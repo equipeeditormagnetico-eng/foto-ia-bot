@@ -50,16 +50,19 @@ app.post('/webhook', async (req, res) => {
       message?.extendedTextMessage?.text ||
       '';
 
-    if (!text) {
-      console.log('[webhook] Mensagem sem texto (mídia/sticker?) — ignorada');
+    const isImage = !!message?.imageMessage;
+
+    // Ignorar se não for texto nem imagem (sticker, áudio, vídeo, etc.)
+    if (!text && !isImage) {
+      console.log('[webhook] Mensagem sem texto nem imagem — ignorada');
       return;
     }
 
     // Número limpo: remover sufixo @s.whatsapp.net
     const phone = remoteJid.replace('@s.whatsapp.net', '');
 
-    console.log(`[webhook] Mensagem recebida de ${phone}: "${text}"`);
-    await handleMessage(phone, text);
+    console.log(`[webhook] Mensagem recebida de ${phone}: ${isImage ? '[IMAGEM]' : `"${text}"`}`);
+    await handleMessage(phone, text, message);
   } catch (err) {
     console.error('[webhook] Erro ao processar mensagem:', err.message);
   }

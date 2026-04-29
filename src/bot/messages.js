@@ -65,10 +65,14 @@ const messages = {
     `✅ A — Teste gratuito primeiro\n` +
     `💎 B — Contratar o pacote completo direto`,
 
-  confirmTest: () =>
-    `Perfeito! 🎉 Vou avisar nossa equipe agora mesmo.\n` +
-    `Em breve alguém vai entrar em contato com você para combinar os detalhes do teste gratuito!\n\n` +
-    `Qualquer dúvida é só chamar aqui. 😊`,
+  askPhotos: () =>
+    `Tudo bem, vou te pedir que me envie de duas a cinco fotos suas que mostrem bem seu rosto ` +
+    `para que eu gere sua foto teste. Me envie agora por favor 😊📸`,
+
+  confirmPhotosReceived: () =>
+    `Perfeito! Suas fotos foram recebidas com sucesso ✅\n` +
+    `Nossa equipe já foi avisada e em breve alguém entrará em contato ` +
+    `para dar continuidade ao seu ensaio! 😊`,
 
   confirmHire: (name) =>
     `Incrível, ${name}! Você tomou a melhor decisão! 🚀\n\n` +
@@ -86,13 +90,13 @@ const messages = {
   reminder: (name) =>
     `Oi ${name || ''}! Ainda estou por aqui caso queira continuar. 😊`.trim(),
 
-  ownerNotifyTest: (name, phone, style) =>
+  ownerNotifyTestPhotos: (name, phone, style, photoCount) =>
     `🔔 *NOVO LEAD — TESTE GRATUITO*\n\n` +
     `Nome: ${name}\n` +
     `Telefone: ${phone}\n` +
-    `Estilo escolhido: ${style}\n` +
-    `Decisão: Quer fazer o TESTE gratuito primeiro\n\n` +
-    `⚡ Entre em contato agora!`,
+    `Estilo: ${style}\n` +
+    `Fotos recebidas: ${photoCount}\n` +
+    `Status: Aguardando atendimento`,
 
   ownerNotifyHire: (name, phone, style) =>
     `🔥 *NOVO LEAD — QUER CONTRATAR*\n\n` +

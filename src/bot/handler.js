@@ -5,6 +5,11 @@ const { sendText } = require('../services/whatsapp');
 
 const OWNER_PHONE = process.env.OWNER_PHONE;
 
+// AJUSTE 2 — Remove prefixo 55 do número para exibição na notificação
+function formatPhone(phone) {
+  return phone.replace(/^55/, '');
+}
+
 // Resolve qual chave de estilo o lead quis dizer
 function parseStyle(text) {
   if (['1', '2', '3', '4'].includes(text)) return text;
@@ -41,7 +46,35 @@ function parseDecision(text) {
   return null;
 }
 
-async function handleMessage(phone, rawText) {
+// AJUSTE 3 — Disparado 30s após a primeira foto recebida
+async function processPhotosTimeout(phone) {
+  const session = getSession(phone);
+  if (!session || session.state !== 'WAITING_PHOTOS') return;
+
+  const photoCount = session.photoCount || 0;
+  const displayPhone = formatPhone(phone);
+
+  console.log(`[handler] Timer de fotos disparado para ${phone} (${session.name}) — ${photoCount} foto(s)`);
+
+  try {
+    await sendText(phone, messages.confirmPhotosReceived());
+    await sendText(
+      OWNER_PHONE,
+      messages.ownerNotifyTestPhotos(session.name, displayPhone, session.style, photoCount)
+    );
+  } catch (err) {
+    console.error(`[handler] Erro ao enviar confirmação de fotos para ${phone}:`, err.message);
+  }
+
+  // AJUSTE 1 — Marcar sessão como finalizada ao entrar em DONE
+  updateSession(phone, { state: 'DONE', finished: true });
+  console.log(`[handler] Lead ${phone} (${session.name}) finalizado após envio de fotos`);
+}
+
+// phone    — número limpo (sem @s.whatsapp.net)
+// rawText  — texto da mensagem (vazio para imagens)
+// message  — objeto bruto da Evolution API (para detectar imageMessage)
+async function handleMessage(phone, rawText, message) {
   const text = rawText.trim().toLowerCase();
 
   let session = getSession(phone);
@@ -51,7 +84,16 @@ async function handleMessage(phone, rawText) {
     console.log(`[handler] Nova sessão criada para ${phone} | estado: WELCOME`);
   }
 
-  console.log(`[handler] ${phone} | estado: ${session.state} | mensagem: "${rawText}"`);
+  // AJUSTE 1 — Silenciar completamente sessões finalizadas
+  if (session.finished === true) {
+    console.log(`[handler] Sessão finalizada para ${phone} — mensagem ignorada`);
+    return;
+  }
+
+  // Detectar se a mensagem é uma imagem
+  const isImage = !!message?.imageMessage;
+
+  console.log(`[handler] ${phone} | estado: ${session.state} | ${isImage ? '[IMAGEM]' : `"${rawText}"`}`);
 
   switch (session.state) {
     case 'WELCOME': {
@@ -61,8 +103,8 @@ async function handleMessage(phone, rawText) {
     }
 
     case 'GET_NAME': {
-      // BUG 1 — se o lead perguntar sobre preço antes de informar o nome,
-      // exibir tabela e permanecer em GET_NAME sem salvar a mensagem como nome
+      // Se o lead perguntar sobre preço antes de informar o nome,
+      // exibir tabela anônima e permanecer em GET_NAME sem salvar como nome
       if (isPricingQuestion(text)) {
         console.log(`[handler] Lead ${phone} perguntou sobre preços antes de informar o nome`);
         await sendText(phone, messages.pricingInfoAnonymous());
@@ -90,7 +132,7 @@ async function handleMessage(phone, rawText) {
     case 'GET_DECISION': {
       const decision = parseDecision(text);
 
-      // Lead perguntou sobre preço/valor → mostrar tabela usando nome salvo na sessão (BUG 2)
+      // Lead perguntou sobre preço/valor → mostrar tabela usando nome salvo na sessão
       if (decision === 'PRICING') {
         console.log(`[handler] Lead ${phone} (${session.name}) perguntou sobre preços`);
         await sendText(phone, messages.pricingInfo(session.name)); // session.name, nunca rawText
@@ -103,23 +145,47 @@ async function handleMessage(phone, rawText) {
         return;
       }
 
-      updateSession(phone, { state: 'DONE' });
-
       if (decision === 'TESTE') {
-        await sendText(phone, messages.confirmTest());
-        await sendText(OWNER_PHONE, messages.ownerNotifyTest(session.name, phone, session.style));
-        console.log(`[handler] Lead ${phone} (${session.name}) escolheu TESTE GRATUITO`);
+        // AJUSTE 3 — Não finaliza aqui: aguarda envio das fotos
+        await sendText(phone, messages.askPhotos());
+        updateSession(phone, { state: 'WAITING_PHOTOS', photoCount: 0, photoTimer: null });
+        console.log(`[handler] Lead ${phone} (${session.name}) escolheu TESTE GRATUITO → aguardando fotos`);
       } else {
-        // CONTRATAR: primeiro informa os pacotes ao lead, depois notifica o dono
+        // CONTRATAR: informa os pacotes ao lead, notifica o dono e finaliza
+        // AJUSTE 1 — marcar finished ao entrar em DONE
+        // AJUSTE 2 — usar formatPhone na notificação
         await sendText(phone, messages.confirmHire(session.name));
-        await sendText(OWNER_PHONE, messages.ownerNotifyHire(session.name, phone, session.style));
-        console.log(`[handler] Lead ${phone} (${session.name}) quer CONTRATAR`);
+        await sendText(OWNER_PHONE, messages.ownerNotifyHire(session.name, formatPhone(phone), session.style));
+        updateSession(phone, { state: 'DONE', finished: true });
+        console.log(`[handler] Lead ${phone} (${session.name}) quer CONTRATAR — finalizado`);
+      }
+      break;
+    }
+
+    // AJUSTE 3 — Estado de espera pelas fotos do teste gratuito
+    case 'WAITING_PHOTOS': {
+      // Ignorar mensagens de texto silenciosamente — aguardar apenas imagens
+      if (!isImage) {
+        console.log(`[handler] Lead ${phone} enviou texto em WAITING_PHOTOS — aguardando imagens`);
+        return;
+      }
+
+      const newCount = (session.photoCount || 0) + 1;
+      updateSession(phone, { photoCount: newCount });
+      console.log(`[handler] Lead ${phone} (${session.name}) enviou foto ${newCount}`);
+
+      // Iniciar timer de 30s somente na primeira imagem recebida
+      if (newCount === 1) {
+        const timer = setTimeout(() => processPhotosTimeout(phone), 30_000);
+        updateSession(phone, { photoTimer: timer });
+        console.log(`[handler] Timer de 30s iniciado para ${phone}`);
       }
       break;
     }
 
     case 'DONE': {
-      await sendText(phone, messages.done());
+      // Nunca deve ser alcançado pois finished=true é verificado no início
+      console.log(`[handler] Lead ${phone} em DONE (estado inesperado) — ignorado`);
       break;
     }
 
