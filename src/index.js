@@ -1,11 +1,14 @@
 require('dotenv').config();
 const express = require('express');
 const { handleMessage } = require('./bot/handler');
+const { handleOperatorCommand } = require('./bot/operator');
+const { getSession, updateSession } = require('./bot/session');
 
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+const PORT          = process.env.PORT           || 3000;
+const OPERATOR_PHONE = process.env.OPERATOR_PHONE || '';
 
 // Health check para o Railway
 app.get('/health', (_req, res) => {
@@ -23,7 +26,7 @@ app.post('/webhook', async (req, res) => {
     // Suporte ao formato padrão: { data: { key, message, ... } }
     const data = body?.data ?? body;
 
-    const key = data?.key;
+    const key     = data?.key;
     const message = data?.message;
 
     if (!key || !message) {
@@ -31,18 +34,50 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Ignorar mensagens enviadas pelo próprio bot
-    if (key.fromMe === true) {
-      console.log('[webhook] Mensagem própria (fromMe) — ignorada');
-      return;
-    }
+    const remoteJid = key.remoteJid ?? '';
 
     // Ignorar mensagens de grupos
-    const remoteJid = key.remoteJid ?? '';
     if (remoteJid.endsWith('@g.us')) {
       console.log(`[webhook] Mensagem de grupo (${remoteJid}) — ignorada`);
       return;
     }
+
+    const phone = remoteJid.replace('@s.whatsapp.net', '');
+
+    // ── AJUSTE 5 — Operador assume conversa automaticamente ─────────────────
+    // Quando o operador responde diretamente a um lead pelo WhatsApp conectado,
+    // fromMe=true e remoteJid é o número do lead. Finaliza a sessão dele.
+    // Nota: configure o webhook da Evolution API com ignoreFromMe=false para receber esses eventos.
+    if (key.fromMe === true) {
+      const leadSession = getSession(phone);
+      if (leadSession && !leadSession.finished) {
+        updateSession(phone, { finished: true });
+        console.log(`[webhook] Operador assumiu conversa com ${phone} — sessão finalizada automaticamente`);
+      } else {
+        console.log(`[webhook] fromMe=true para ${phone} — sem sessão ativa para finalizar`);
+      }
+      return;
+    }
+
+    // ── AJUSTE 4 — Comandos do operador ─────────────────────────────────────
+    // Mensagens recebidas do OPERATOR_PHONE são tratadas como comandos administrativos,
+    // nunca como leads.
+    if (OPERATOR_PHONE && phone === OPERATOR_PHONE) {
+      const text =
+        message?.conversation ||
+        message?.extendedTextMessage?.text ||
+        '';
+
+      if (text) {
+        console.log(`[webhook] Comando do operador (${phone}): "${text}"`);
+        await handleOperatorCommand(phone, text);
+      } else {
+        console.log(`[webhook] Mensagem não-texto do operador — ignorada`);
+      }
+      return;
+    }
+
+    // ── Fluxo normal de leads ────────────────────────────────────────────────
 
     // Extrair texto da mensagem (texto simples ou extended)
     const text =
@@ -58,11 +93,9 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Número limpo: remover sufixo @s.whatsapp.net
-    const phone = remoteJid.replace('@s.whatsapp.net', '');
-
     console.log(`[webhook] Mensagem recebida de ${phone}: ${isImage ? '[IMAGEM]' : `"${text}"`}`);
     await handleMessage(phone, text, message);
+
   } catch (err) {
     console.error('[webhook] Erro ao processar mensagem:', err.message);
   }
@@ -70,6 +103,7 @@ app.post('/webhook', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[server] Atendente rodando na porta ${PORT}`);
-  console.log(`[server] Webhook: POST http://localhost:${PORT}/webhook`);
-  console.log(`[server] Health:  GET  http://localhost:${PORT}/health`);
+  console.log(`[server] Webhook:  POST http://localhost:${PORT}/webhook`);
+  console.log(`[server] Health:   GET  http://localhost:${PORT}/health`);
+  console.log(`[server] Operador: ${OPERATOR_PHONE || '(não configurado)'}`);
 });

@@ -58,16 +58,31 @@ function scheduleExpiry(phone, session) {
   }, SESSION_TTL_MS);
 }
 
+// Retorna todas as sessões ativas (não expiradas) para o comando "sessões" do operador
+function listAllSessions() {
+  const result = [];
+  for (const [phone, session] of sessions.entries()) {
+    if (Date.now() - session.lastActivity > SESSION_TTL_MS) continue;
+    result.push({
+      phone,
+      state: session.state,
+      finished: session.finished || false,
+      name: session.name,
+    });
+  }
+  return result;
+}
+
 function resetReminderTimer(phone, session) {
   if (session.reminderTimer) clearTimeout(session.reminderTimer);
   session.reminderSent = false;
 
-  // Só agenda lembrete se o fluxo ainda não terminou
-  if (session.state === 'DONE') return;
+  // Não agenda lembrete se o fluxo terminou ou a sessão foi finalizada pelo operador
+  if (session.state === 'DONE' || session.finished) return;
 
   session.reminderTimer = setTimeout(async () => {
     const current = sessions.get(phone);
-    if (!current || current.state === 'DONE' || current.reminderSent) return;
+    if (!current || current.state === 'DONE' || current.finished || current.reminderSent) return;
 
     current.reminderSent = true;
     console.log(`[session] Enviando lembrete para ${phone}`);
@@ -79,4 +94,4 @@ function resetReminderTimer(phone, session) {
   }, REMINDER_DELAY_MS);
 }
 
-module.exports = { getSession, createSession, updateSession };
+module.exports = { getSession, createSession, updateSession, listAllSessions };
