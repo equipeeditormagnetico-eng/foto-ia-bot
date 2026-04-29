@@ -3,21 +3,42 @@ const { getSession, createSession, updateSession } = require('./session');
 const { messages, STYLES } = require('./messages');
 const { sendText } = require('../services/whatsapp');
 
-const OWNER_PHONE = process.env.OWNER_PHONE;
+const OWNER_PHONE   = process.env.OWNER_PHONE;
+const OWNER_PHONE_2 = process.env.OWNER_PHONE_2;
 
-// AJUSTE 2 — Remove prefixo 55 do número para exibição na notificação
+// Remove prefixo 55 do número para exibição na notificação
 function formatPhone(phone) {
   return phone.replace(/^55/, '');
 }
 
-// Resolve qual chave de estilo o lead quis dizer
-function parseStyle(text) {
-  if (['1', '2', '3', '4'].includes(text)) return text;
+// Envia notificação para todos os números do dono configurados
+async function sendOwnerNotification(text) {
+  const targets = [OWNER_PHONE, OWNER_PHONE_2].filter(Boolean);
+  await Promise.all(targets.map((n) => sendText(n, text)));
+}
 
-  if (text.includes('executivo') || text.includes('corporativo')) return '1';
-  if (text.includes('artístico') || text.includes('artistico') || text.includes('editorial')) return '2';
-  if (text.includes('casual') || text.includes('lifestyle')) return '3';
-  if (text.includes('glamour') || text.includes('fashion')) return '4';
+// Resolve qual chave de estilo o lead quis dizer (1–10)
+function parseStyle(text) {
+  // Aceitar número exato digitado
+  if (['1','2','3','4','5','6','7','8','9','10'].includes(text)) return text;
+
+  // Palavras-chave por estilo
+  if (text.includes('executivo') || text.includes('empresarial') || text.includes('empresa')) return '1';
+  if (text.includes('saude') || text.includes('saúde') || text.includes('medico') ||
+      text.includes('médico') || text.includes('enfermeiro') || text.includes('doutor')) return '2';
+  if (text.includes('empreendedor') || text.includes('negocio') ||
+      text.includes('negócio') || text.includes('local')) return '3';
+  if (text.includes('feminino') || text.includes('autoestima') || text.includes('feminina')) return '4';
+  if (text.includes('maes') || text.includes('mães') || text.includes('mae') || text.includes('mãe')) return '5';
+  if (text.includes('casal') || text.includes('romantico') ||
+      text.includes('romântico') || text.includes('namorado')) return '6';
+  if (text.includes('gestante') || text.includes('gravida') || text.includes('grávida')) return '7';
+  if (text.includes('fitness') || text.includes('corpo') ||
+      text.includes('academia') || text.includes('musculação') || text.includes('musculacao')) return '8';
+  if (text.includes('perfil') || text.includes('redes sociais') ||
+      text.includes('social') || text.includes('instagram')) return '9';
+  if (text.includes('datas') || text.includes('comemorativa') ||
+      text.includes('aniversario') || text.includes('formatura')) return '10';
 
   return null;
 }
@@ -58,8 +79,7 @@ async function processPhotosTimeout(phone) {
 
   try {
     await sendText(phone, messages.confirmPhotosReceived());
-    await sendText(
-      OWNER_PHONE,
+    await sendOwnerNotification(
       messages.ownerNotifyTestPhotos(session.name, displayPhone, session.style, photoCount)
     );
   } catch (err) {
@@ -167,7 +187,7 @@ async function handleMessage(phone, rawText, message) {
         // AJUSTE 1 — marcar finished ao entrar em DONE
         // AJUSTE 2 — usar formatPhone na notificação
         await sendText(phone, messages.confirmHire(session.name));
-        await sendText(OWNER_PHONE, messages.ownerNotifyHire(session.name, formatPhone(phone), session.style));
+        await sendOwnerNotification(messages.ownerNotifyHire(session.name, formatPhone(phone), session.style));
         updateSession(phone, { state: 'DONE', finished: true });
         console.log(`[handler] Lead ${phone} (${session.name}) quer CONTRATAR — finalizado`);
       }

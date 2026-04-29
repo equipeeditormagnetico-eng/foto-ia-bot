@@ -1,8 +1,14 @@
 const STYLES = {
-  '1': 'Executivo / Corporativo',
-  '2': 'Artístico / Editorial',
-  '3': 'Casual / Lifestyle',
-  '4': 'Glamour / Fashion',
+  '1':  'Executivo / Empresarial',
+  '2':  'Saúde / Área Médica',
+  '3':  'Empreendedores / Negócios Locais',
+  '4':  'Ensaio Feminino (Autoestima)',
+  '5':  'Dia das Mães',
+  '6':  'Casal / Romântico',
+  '7':  'Gestante',
+  '8':  'Fitness / Corpo',
+  '9':  'Perfil para Redes Sociais',
+  '10': 'Datas Comemorativas',
 };
 
 const messages = {
@@ -15,19 +21,31 @@ const messages = {
   askStyle: (name) =>
     `Que nome lindo, ${name}! 😊\n\n` +
     `Agora me diz: qual estilo de ensaio combina mais com você?\n\n` +
-    `1️⃣ Executivo / Corporativo — perfeito para LinkedIn e perfil profissional\n` +
-    `2️⃣ Artístico / Editorial — fotos com mood e estética diferenciada\n` +
-    `3️⃣ Casual / Lifestyle — natural, leve e autêntico\n` +
-    `4️⃣ Glamour / Fashion — elegante, poderoso e impactante\n\n` +
+    `1️⃣ Executivo / Empresarial\n` +
+    `2️⃣ Saúde / Área Médica\n` +
+    `3️⃣ Empreendedores / Negócios Locais\n` +
+    `4️⃣ Ensaio Feminino (Autoestima)\n` +
+    `5️⃣ Dia das Mães\n` +
+    `6️⃣ Casal / Romântico\n` +
+    `7️⃣ Gestante\n` +
+    `8️⃣ Fitness / Corpo\n` +
+    `9️⃣ Perfil para Redes Sociais\n` +
+    `🔟 Datas Comemorativas\n\n` +
     `Responde com o número da opção! 👇`,
 
   invalidStyle: () =>
     `Hmm, não entendi essa opção! 😅\n\n` +
     `Por favor, responde com o *número* da opção que combina com você:\n\n` +
-    `1️⃣ Executivo / Corporativo\n` +
-    `2️⃣ Artístico / Editorial\n` +
-    `3️⃣ Casual / Lifestyle\n` +
-    `4️⃣ Glamour / Fashion`,
+    `1️⃣ Executivo / Empresarial\n` +
+    `2️⃣ Saúde / Área Médica\n` +
+    `3️⃣ Empreendedores / Negócios Locais\n` +
+    `4️⃣ Ensaio Feminino (Autoestima)\n` +
+    `5️⃣ Dia das Mães\n` +
+    `6️⃣ Casal / Romântico\n` +
+    `7️⃣ Gestante\n` +
+    `8️⃣ Fitness / Corpo\n` +
+    `9️⃣ Perfil para Redes Sociais\n` +
+    `🔟 Datas Comemorativas`,
 
   askDecision: (name, style) =>
     `Ótima escolha! O estilo *${style}* fica LINDO! 🔥\n\n` +
