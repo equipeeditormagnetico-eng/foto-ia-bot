@@ -59,16 +59,35 @@ app.post('/webhook', async (req, res) => {
     }
 
     // ── AJUSTE 5 — Operador assume conversa automaticamente ─────────────────
-    // Quando o operador responde diretamente a um lead pelo WhatsApp conectado,
-    // fromMe=true e remoteJid é o número do lead. Finaliza a sessão dele.
-    // Nota: configure o webhook da Evolution API com ignoreFromMe=false para receber esses eventos.
+    // fromMe=true significa que a mensagem foi enviada PELA instância conectada.
+    // Isso inclui tanto respostas automáticas do bot quanto digitação manual do operador.
+    //
+    // BUG CORRIGIDO: não finalizar quando é o próprio bot respondendo automaticamente.
+    // Só finalizar quando o operador responde MANUALMENTE a um lead, o que é identificado
+    // verificando se o remoteJid da conversa contém o OPERATOR_PHONE — ou seja,
+    // a conversa em questão é entre o operador e um lead, não o bot e um lead.
+    //
+    // Na prática: quando o operador abre o WhatsApp e digita manualmente para um lead,
+    // o remoteJid será o número do lead e o participant/sender será o OPERATOR_PHONE.
+    // Quando o bot envia automaticamente, o participant não é o OPERATOR_PHONE.
     if (key.fromMe === true) {
-      const leadSession = getSession(phone);
-      if (leadSession && !leadSession.finished) {
-        updateSession(phone, { finished: true });
-        console.log(`[webhook] Operador assumiu conversa com ${phone} — sessão finalizada automaticamente`);
+      // Identificar se quem enviou foi o operador (via campo participant ou sender)
+      const senderJid = data?.participant ?? key?.participant ?? data?.sender ?? '';
+      const senderPhone = senderJid.replace('@s.whatsapp.net', '').replace('@lid', '');
+      const isOperatorMessage = OPERATOR_PHONE && senderPhone === OPERATOR_PHONE;
+
+      if (isOperatorMessage) {
+        // Operador respondeu manualmente → finalizar sessão do lead (remoteJid)
+        const leadSession = getSession(phone);
+        if (leadSession && !leadSession.finished) {
+          updateSession(phone, { finished: true });
+          console.log(`[webhook] Operador assumiu conversa com ${phone} — sessão finalizada automaticamente`);
+        } else {
+          console.log(`[webhook] Operador respondeu para ${phone} — sessão já finalizada ou inexistente`);
+        }
       } else {
-        console.log(`[webhook] fromMe=true para ${phone} — sem sessão ativa para finalizar`);
+        // Bot enviou resposta automática → ignorar completamente
+        console.log(`[webhook] fromMe=true (bot automático) para ${phone} — ignorado`);
       }
       return;
     }
