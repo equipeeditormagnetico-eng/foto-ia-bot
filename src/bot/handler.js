@@ -67,7 +67,7 @@ function parseDecision(text) {
   return null;
 }
 
-// AJUSTE 3 — Disparado 30s após a primeira foto recebida
+// Disparado 30s após a primeira foto recebida no estado WAITING_PHOTOS
 async function processPhotosTimeout(phone) {
   const session = getSession(phone);
   if (!session || session.state !== 'WAITING_PHOTOS') return;
@@ -75,7 +75,10 @@ async function processPhotosTimeout(phone) {
   const photoCount = session.photoCount || 0;
   const displayPhone = formatPhone(phone);
 
-  console.log(`[handler] Timer de fotos disparado para ${phone} (${session.name}) — ${photoCount} foto(s)`);
+  // Marcar como finalizado IMEDIATAMENTE — antes de qualquer await —
+  // para que novas mensagens recebidas durante os envios sejam ignoradas.
+  updateSession(phone, { state: 'DONE', finished: true });
+  console.log(`[handler] Lead ${phone} (${session.name}) finalizado | fotos: ${photoCount}`);
 
   try {
     await sendText(phone, messages.confirmPhotosReceived());
@@ -85,29 +88,27 @@ async function processPhotosTimeout(phone) {
   } catch (err) {
     console.error(`[handler] Erro ao enviar confirmação de fotos para ${phone}:`, err.message);
   }
-
-  // AJUSTE 1 — Marcar sessão como finalizada ao entrar em DONE
-  updateSession(phone, { state: 'DONE', finished: true });
-  console.log(`[handler] Lead ${phone} (${session.name}) finalizado após envio de fotos`);
 }
 
 // phone    — número limpo (sem @s.whatsapp.net)
 // rawText  — texto da mensagem (vazio para imagens)
 // message  — objeto bruto da Evolution API (para detectar imageMessage)
 async function handleMessage(phone, rawText, message) {
+  // ── PRIMEIRA verificação: sessão finalizada ──────────────────────────────
+  // Executada antes de qualquer outro código, inclusive criação de sessão e logs.
+  // Garante que nenhuma mensagem posterior ao DONE seja processada.
+  const existingSession = getSession(phone);
+  if (existingSession?.finished === true) {
+    console.log(`[handler] Sessão finalizada para ${phone} — mensagem ignorada`);
+    return;
+  }
+
   const text = rawText.trim().toLowerCase();
 
-  let session = getSession(phone);
-
+  let session = existingSession;
   if (!session) {
     session = createSession(phone);
     console.log(`[handler] Nova sessão criada para ${phone} | estado: WELCOME`);
-  }
-
-  // AJUSTE 1 — Silenciar completamente sessões finalizadas
-  if (session.finished === true) {
-    console.log(`[handler] Sessão finalizada para ${phone} — mensagem ignorada`);
-    return;
   }
 
   // Detectar se a mensagem é uma imagem
@@ -183,13 +184,12 @@ async function handleMessage(phone, rawText, message) {
         updateSession(phone, { state: 'WAITING_PHOTOS', photoCount: 0, photoTimer: null });
         console.log(`[handler] Lead ${phone} (${session.name}) escolheu TESTE GRATUITO → aguardando fotos`);
       } else {
-        // CONTRATAR: informa os pacotes ao lead, notifica o dono e finaliza
-        // AJUSTE 1 — marcar finished ao entrar em DONE
-        // AJUSTE 2 — usar formatPhone na notificação
-        await sendText(phone, messages.confirmHire(session.name));
-        await sendOwnerNotification(messages.ownerNotifyHire(session.name, formatPhone(phone), session.style));
+        // CONTRATAR: marcar como finalizado IMEDIATAMENTE antes dos awaits,
+        // evitando race condition caso o lead envie mensagem durante os envios.
         updateSession(phone, { state: 'DONE', finished: true });
         console.log(`[handler] Lead ${phone} (${session.name}) quer CONTRATAR — finalizado`);
+        await sendText(phone, messages.confirmHire(session.name));
+        await sendOwnerNotification(messages.ownerNotifyHire(session.name, formatPhone(phone), session.style));
       }
       break;
     }
