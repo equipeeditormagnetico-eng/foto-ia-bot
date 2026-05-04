@@ -62,11 +62,19 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // remoteJid completo (ex: "5511...@s.whatsapp.net" ou "1178...@lid")
     const remoteJid = key.remoteJid ?? '';
 
+    // @lid é um ID interno do Meta — não é o número real do WhatsApp.
+    // Quando isso ocorre, o campo "sender" do payload traz o número real
+    // no formato correto (ex: 558179073673@s.whatsapp.net).
+    const replyJid = remoteJid.endsWith('@lid')
+      ? (body.sender ?? data.sender ?? remoteJid)
+      : remoteJid;
+
+    console.log(`[webhook] remoteJid: ${remoteJid} | replyJid: ${replyJid}`);
+
     // phone limpo — usado APENAS como chave de sessão, nunca para envio
-    const phone = remoteJid
+    const phone = replyJid
       .replace(/@s\.whatsapp\.net$/, '')
       .replace(/@lid$/, '')
       .replace(/@g\.us$/, '');
@@ -125,11 +133,11 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    console.log(`[webhook] ▶ Processando ${phone} (jid: ${remoteJid}): ${isImage ? '[IMAGEM]' : `"${text}"`}`);
+    console.log(`[webhook] ▶ Processando ${phone} (replyJid: ${replyJid}): ${isImage ? '[IMAGEM]' : `"${text}"`}`);
 
-    // IMPORTANTE: passa remoteJid separado do phone.
-    // phone → chave de sessão  |  remoteJid → destino dos envios
-    await handleMessage(phone, remoteJid, text, message, key);
+    // phone    → chave de sessão (número limpo)
+    // replyJid → JID real para enviar a resposta (@s.whatsapp.net, nunca @lid)
+    await handleMessage(phone, replyJid, text, message, key);
     console.log(`[webhook] ✅ Concluído para ${phone}`);
 
   } catch (err) {
