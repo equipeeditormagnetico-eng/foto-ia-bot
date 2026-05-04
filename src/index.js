@@ -1,29 +1,29 @@
 require('dotenv').config();
 const express = require('express');
-const { handleMessage } = require('./bot/handler');
+const { handleMessage }       = require('./bot/handler');
 const { handleOperatorCommand } = require('./bot/operator');
 const { getSession, updateSession } = require('./bot/session');
 
 const app = express();
 app.use(express.json());
 
-const PORT          = process.env.PORT           || 3000;
+const PORT           = process.env.PORT           || 3000;
 const OPERATOR_PHONE = process.env.OPERATOR_PHONE || '';
 
-// Health check para o Railway
+// Health check para Railway / Docker
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 app.post('/webhook', async (req, res) => {
-  // Responder imediatamente para não travar a Evolution API
+  // Responde imediatamente para a Evolution API não retentar
   res.sendStatus(200);
 
   try {
     const body = req.body;
 
-    // A Evolution API envolve o payload em diferentes estruturas dependendo da versão.
-    // Suporte ao formato padrão: { data: { key, message, ... } }
+    // A Evolution API envolve o payload em diferentes estruturas.
+    // Suporte ao formato padrão: { event, data: { key, message, ... } }
     const data = body?.data ?? body;
 
     const key     = data?.key;
@@ -41,106 +41,79 @@ app.post('/webhook', async (req, res) => {
       .replace('@s.whatsapp.net', '')
       .replace('@lid', '');
 
-    // Detectar tipo da mensagem para logging (ignora messageContextInfo que é só metadado)
     const messageType =
       Object.keys(message).find((k) => k !== 'messageContextInfo') ||
       Object.keys(message)[0] ||
       'unknown';
 
-    // Log detalhado no início de cada evento recebido
     const sessionForLog = getSession(phone);
-    console.log('[webhook] De:', remoteJid, '| Tipo:', messageType, '| Estado:', sessionForLog?.state ?? 'nova');
+    console.log(`[webhook] De: ${remoteJid} | Tipo: ${messageType} | Estado: ${sessionForLog?.state ?? 'nova'}`);
 
-    // Ignorar mensagens de grupos (@g.us)
-    // Mensagens individuais chegam como @s.whatsapp.net ou @lid (Meta/Instagram)
+    // Ignora mensagens de grupos
     if (remoteJid.endsWith('@g.us')) {
-      console.log(`[webhook] Mensagem de grupo (${remoteJid}) — ignorada`);
+      console.log(`[webhook] Grupo — ignorado`);
       return;
     }
 
-    // ── AJUSTE 5 — Operador assume conversa automaticamente ─────────────────
-    // fromMe=true significa que a mensagem foi enviada PELA instância conectada.
-    // Isso inclui tanto respostas automáticas do bot quanto digitação manual do operador.
-    //
-    // BUG CORRIGIDO: não finalizar quando é o próprio bot respondendo automaticamente.
-    // Só finalizar quando o operador responde MANUALMENTE a um lead, o que é identificado
-    // verificando se o remoteJid da conversa contém o OPERATOR_PHONE — ou seja,
-    // a conversa em questão é entre o operador e um lead, não o bot e um lead.
-    //
-    // Na prática: quando o operador abre o WhatsApp e digita manualmente para um lead,
-    // o remoteJid será o número do lead e o participant/sender será o OPERATOR_PHONE.
-    // Quando o bot envia automaticamente, o participant não é o OPERATOR_PHONE.
+    // ── fromMe: detecta se foi o operador digitando manualmente ──────────
     if (key.fromMe === true) {
-      // Identificar se quem enviou foi o operador (via campo participant ou sender)
-      const senderJid = data?.participant ?? key?.participant ?? data?.sender ?? '';
+      const senderJid  = data?.participant ?? key?.participant ?? data?.sender ?? '';
       const senderPhone = senderJid.replace('@s.whatsapp.net', '').replace('@lid', '');
-      const isOperatorMessage = OPERATOR_PHONE && senderPhone === OPERATOR_PHONE;
+      const isOperatorManual = OPERATOR_PHONE && senderPhone === OPERATOR_PHONE;
 
-      if (isOperatorMessage) {
-        // Operador respondeu manualmente → finalizar sessão do lead (remoteJid)
-        const leadSession = getSession(phone);
-        if (leadSession && !leadSession.finished) {
+      if (isOperatorManual) {
+        const lead = getSession(phone);
+        if (lead && !lead.finished) {
           updateSession(phone, { finished: true });
-          console.log(`[webhook] Operador assumiu conversa com ${phone} — sessão finalizada automaticamente`);
-        } else {
-          console.log(`[webhook] Operador respondeu para ${phone} — sessão já finalizada ou inexistente`);
+          console.log(`[webhook] Operador assumiu ${phone} — sessão finalizada`);
         }
       } else {
-        // Bot enviou resposta automática → ignorar completamente
-        console.log(`[webhook] fromMe=true (bot automático) para ${phone} — ignorado`);
+        console.log(`[webhook] fromMe (bot automático) — ignorado`);
       }
       return;
     }
 
-    // ── AJUSTE 4 — Comandos do operador ─────────────────────────────────────
-    // Mensagens recebidas do OPERATOR_PHONE são tratadas como comandos administrativos,
-    // nunca como leads.
+    // ── Comandos do operador ──────────────────────────────────────────────
     if (OPERATOR_PHONE && phone === OPERATOR_PHONE) {
       const text =
         message?.conversation ||
         message?.extendedTextMessage?.text ||
         '';
-
       if (text) {
-        console.log(`[webhook] Comando do operador (${phone}): "${text}"`);
+        console.log(`[webhook] Operador: "${text}"`);
         await handleOperatorCommand(phone, text);
-      } else {
-        console.log(`[webhook] Mensagem não-texto do operador — ignorada`);
       }
       return;
     }
 
-    // ── Fluxo normal de leads ────────────────────────────────────────────────
-
-    // Extrair texto da mensagem.
-    // messageContextInfo é apenas metadado (contexto de anúncio Meta/Instagram)
-    // e não interfere na extração — o texto real vem nos campos abaixo.
+    // ── Fluxo normal de clientes ──────────────────────────────────────────
     const text =
       message?.conversation ||
-      message?.extendedTextMessage?.text ||           // texto com contexto/citação
-      message?.buttonsResponseMessage?.selectedButtonId ||  // botão clicado
-      message?.listResponseMessage?.singleSelectReply?.selectedRowId || // lista
-      message?.templateButtonReplyMessage?.selectedId ||    // template button
+      message?.extendedTextMessage?.text ||
+      message?.buttonsResponseMessage?.selectedButtonId ||
+      message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+      message?.templateButtonReplyMessage?.selectedId ||
       '';
 
     const isImage = !!message?.imageMessage;
 
-    // Ignorar se não for texto nem imagem (sticker, áudio, vídeo, documento, etc.)
     if (!text && !isImage) {
       console.log(`[webhook] Tipo "${messageType}" sem texto nem imagem — ignorado`);
       return;
     }
 
-    console.log(`[webhook] Processando de ${phone}: ${isImage ? '[IMAGEM]' : `"${text}"`}`);
-    await handleMessage(phone, text, message);
+    console.log(`[webhook] Processando ${phone}: ${isImage ? '[IMAGEM]' : `"${text}"`}`);
+
+    // Passa o messageKey para o handler poder baixar mídia (comprovante de PIX)
+    await handleMessage(phone, text, message, key);
 
   } catch (err) {
-    console.error('[webhook] Erro ao processar mensagem:', err.message);
+    console.error('[webhook] Erro:', err.message);
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`[server] Atendente rodando na porta ${PORT}`);
+  console.log(`[server] Bot rodando na porta ${PORT}`);
   console.log(`[server] Webhook:  POST http://localhost:${PORT}/webhook`);
   console.log(`[server] Health:   GET  http://localhost:${PORT}/health`);
   console.log(`[server] Operador: ${OPERATOR_PHONE || '(não configurado)'}`);

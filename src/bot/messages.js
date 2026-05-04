@@ -1,131 +1,112 @@
+// Todos os textos do bot centralizados aqui — edite à vontade
+
+const PIX_KEY = process.env.MINHA_CHAVE_PIX || '[MINHA_CHAVE_PIX]';
+
 const STYLES = {
-  '1':  'Executivo / Empresarial',
-  '2':  'Saúde / Área Médica',
-  '3':  'Empreendedores / Negócios Locais',
-  '4':  'Ensaio Feminino (Autoestima)',
-  '5':  'Dia das Mães',
-  '6':  'Casal / Romântico',
-  '7':  'Gestante',
-  '8':  'Fitness / Corpo',
-  '9':  'Perfil para Redes Sociais',
-  '10': 'Datas Comemorativas',
+  estudio:  '🏛️ Estúdio profissional',
+  jardim:   '🌸 Jardim florido',
+  pordosol: '🌅 Pôr do sol dourado',
 };
 
 const messages = {
-  welcome: () =>
-    `Olá! 👋 Seja bem-vindo(a)!\n` +
-    `Eu sou a assistente virtual do nosso estúdio de ensaios fotográficos com IA. 📸✨\n\n` +
-    `Aqui a gente transforma qualquer foto sua em um ensaio profissional incrível — sem precisar sair de casa!\n\n` +
-    `Para começar, me conta: qual é o seu nome?`,
 
-  askStyle: (name) =>
-    `Que nome lindo, ${name}! 😊\n\n` +
-    `Agora me diz: qual estilo de ensaio combina mais com você?\n\n` +
-    `1️⃣ Executivo / Empresarial\n` +
-    `2️⃣ Saúde / Área Médica\n` +
-    `3️⃣ Empreendedores / Negócios Locais\n` +
-    `4️⃣ Ensaio Feminino (Autoestima)\n` +
-    `5️⃣ Dia das Mães\n` +
-    `6️⃣ Casal / Romântico\n` +
-    `7️⃣ Gestante\n` +
-    `8️⃣ Fitness / Corpo\n` +
-    `9️⃣ Perfil para Redes Sociais\n` +
-    `🔟 Datas Comemorativas\n\n` +
-    `Responde com o número da opção! 👇`,
+  // ── Etapa 1: Boas-vindas ────────────────────────────────
+  welcome: () =>
+    `Oi! 🌸 Bem-vinda ao *Ensaio das Mães*!\n\n` +
+    `Aqui você transforma qualquer foto em um ensaio fotográfico profissional com IA.\n\n` +
+    `Por apenas *R$ 29,90* você recebe *3 fotos lindas* pra guardar pra sempre 📸\n\n` +
+    `Escolha o estilo do seu ensaio:\n\n` +
+    `1️⃣ Estúdio profissional\n` +
+    `2️⃣ Jardim florido\n` +
+    `3️⃣ Pôr do sol dourado\n\n` +
+    `_Responda com o número da opção!_`,
 
   invalidStyle: () =>
-    `Hmm, não entendi essa opção! 😅\n\n` +
-    `Por favor, responde com o *número* da opção que combina com você:\n\n` +
-    `1️⃣ Executivo / Empresarial\n` +
-    `2️⃣ Saúde / Área Médica\n` +
-    `3️⃣ Empreendedores / Negócios Locais\n` +
-    `4️⃣ Ensaio Feminino (Autoestima)\n` +
-    `5️⃣ Dia das Mães\n` +
-    `6️⃣ Casal / Romântico\n` +
-    `7️⃣ Gestante\n` +
-    `8️⃣ Fitness / Corpo\n` +
-    `9️⃣ Perfil para Redes Sociais\n` +
-    `🔟 Datas Comemorativas`,
+    `Não reconheci essa opção 😅\n\n` +
+    `Por favor responda com *1*, *2* ou *3*:\n\n` +
+    `1️⃣ Estúdio profissional\n` +
+    `2️⃣ Jardim florido\n` +
+    `3️⃣ Pôr do sol dourado`,
 
-  askDecision: (name, style) =>
-    `Ótima escolha! O estilo *${style}* fica LINDO! 🔥\n\n` +
-    `Agora me diz, ${name}: como você prefere seguir?\n\n` +
-    `✅ A — Quero fazer um *teste gratuito* primeiro para ver como fica\n` +
-    `💎 B — Já quero contratar direto o pacote completo!\n\n` +
-    `Qual das duas opções é a sua?`,
+  // ── Etapa 2: Prova social ───────────────────────────────
+  proofIntro: (styleName) =>
+    `Ótima escolha! Você vai amar o resultado *${styleName}* 😍\n\n` +
+    `Olha o resultado de uma cliente nossa 👇`,
 
-  // Tabela de preços exibida quando o lead ainda não informou o nome
-  pricingInfoAnonymous: () =>
-    `Olá! Claro, veja nossos valores: 😊\n\n` +
-    `🆓 *Teste gratuito* — R$ 0,00\n` +
-    `1 foto para você ver como fica antes de decidir\n\n` +
-    `📸 *Pacote Essencial* — R$ 97,00\n` +
-    `6 fotos profissionais em diferentes cenários\n\n` +
-    `💎 *Pacote Completo* — R$ 149,00\n` +
-    `10 fotos profissionais em diferentes cenários\n\n` +
-    `Todos com entrega em 24h, sem sair de casa! 🏠\n\n` +
-    `Me conta seu nome para começar! 😊`,
+  proofOutro: () =>
+    `Agora me envia sua foto com seus filhos! Pode ser selfie mesmo 📱\n\n` +
+    `💡 _Dica: boa iluminação = resultado ainda mais incrível!_`,
 
-  // Tabela de preços exibida quando o lead já tem nome salvo (GET_DECISION)
-  pricingInfo: (name) =>
-    `Ótima pergunta, ${name}! 😊\n\n` +
-    `O *teste gratuito* é 1 foto sem nenhum custo — você vê como fica antes de decidir qualquer coisa! ✅\n\n` +
-    `Se adorar (e vai adorar! 😄), temos dois pacotes:\n\n` +
-    `📸 *Pacote Essencial* — R$ 97,00\n` +
-    `6 fotos profissionais em diferentes cenários\n\n` +
-    `📸 *Pacote Completo* — R$ 149,00\n` +
-    `10 fotos profissionais em diferentes cenários\n\n` +
-    `Os dois incluem entrega em 24h e sem sair de casa! 🏠\n\n` +
-    `Então me diz: prefere começar pelo teste grátis (A) ou já garantir um dos pacotes (B)?`,
+  // ── Etapa 3: Recebendo a foto ───────────────────────────
+  photoReceived: () =>
+    `Foto recebida! ✨ Nossa IA já está criando seu ensaio...\n\nAguarda 1 minutinho! ⏳`,
 
-  invalidDecision: () =>
-    `Não entendi bem! 😅 Responde com *A* ou *B*:\n\n` +
-    `✅ A — Teste gratuito primeiro\n` +
-    `💎 B — Contratar o pacote completo direto`,
+  needPhoto: () =>
+    `Preciso de uma *foto* sua para criar o ensaio! 📸\n\n` +
+    `Me envia uma foto com seus filhos, pode ser selfie mesmo 😊`,
 
-  askPhotos: () =>
-    `Tudo bem, vou te pedir que me envie de duas a cinco fotos suas que mostrem bem seu rosto ` +
-    `para que eu gere sua foto teste. Me envie agora por favor 😊📸`,
+  // ── Etapa 4: Prévia com marca d'água ───────────────────
+  previewIntro: () =>
+    `🎨 *Seu ensaio ficou incrível!* Veja a prévia:\n_(marca d'água removida após pagamento)_`,
 
-  confirmPhotosReceived: () =>
-    `Perfeito! Suas fotos foram recebidas com sucesso ✅\n` +
-    `Nossa equipe já foi avisada e em breve alguém entrará em contato ` +
-    `para dar continuidade ao seu ensaio! 😊`,
+  previewPayment: () =>
+    `Para receber em *ALTA RESOLUÇÃO* sem marca d'água, faça o PIX 👇\n\n` +
+    `💰 *R$ 29,90*\n` +
+    `🔑 Chave PIX: \`${PIX_KEY}\`\n\n` +
+    `Após pagar me envia o *comprovante* aqui! 📄`,
 
-  confirmHire: (name) =>
-    `Incrível, ${name}! Você tomou a melhor decisão! 🚀\n\n` +
-    `Nossos pacotes disponíveis:\n\n` +
-    `📸 *Pacote Essencial* — R$ 97,00\n` +
-    `6 fotos profissionais em diferentes cenários\n\n` +
-    `💎 *Pacote Completo* — R$ 149,00\n` +
-    `10 fotos profissionais em diferentes cenários\n\n` +
-    `Nossa equipe vai entrar em contato em instantes para você escolher o pacote e já começar! ✨`,
+  // ── Etapa 5: Comprovante recebido ──────────────────────
+  paymentReceived: () =>
+    `Verificando pagamento... ⏳\n\n` +
+    `Assim que confirmado você recebe as fotos em alta resolução!`,
 
-  done: () =>
-    `Nossa equipe já foi avisada e entrará em contato em breve! 😊\n` +
-    `Se tiver alguma dúvida urgente, pode perguntar aqui que eu te ajudo!`,
+  needProof: () =>
+    `Para liberar as fotos em alta resolução, me envia o *comprovante do PIX* como imagem 📄\n\n` +
+    `💰 *R$ 29,90*\n` +
+    `🔑 Chave PIX: \`${PIX_KEY}\``,
 
-  reminder: (name) =>
-    `Oi ${name || ''}! Ainda estou por aqui caso queira continuar. 😊`.trim(),
+  // ── Etapa 6: Liberação ─────────────────────────────────
+  finalDelivery: () =>
+    `Que lindo! Suas fotos chegaram! 🎉🌸\n\n` +
+    `Guarda pra sempre esse momento especial!\n\n` +
+    `Se curtiu me marca nas histórias ❤️\n` +
+    `_Indica pra uma amiga e ela ganha 10% de desconto!_`,
 
-  ownerNotifyTestPhotos: (name, phone, style, photoCount) =>
-    `🔔 *NOVO LEAD — TESTE GRATUITO*\n\n` +
-    `Nome: ${name}\n` +
-    `Telefone: ${phone}\n` +
-    `Estilo: ${style}\n` +
-    `Fotos recebidas: ${photoCount}\n` +
-    `Status: Aguardando atendimento`,
+  // ── Já usou: tem prévia mas não pagou ──────────────────
+  alreadyHasPreview: () =>
+    `Olá! 👋 Você já tem seu ensaio pronto!\n\n` +
+    `Para receber as fotos em alta resolução sem marca d'água:\n\n` +
+    `💰 *R$ 29,90*\n` +
+    `🔑 Chave PIX: \`${PIX_KEY}\`\n\n` +
+    `Basta me enviar o *comprovante do PIX* aqui 📄`,
 
-  ownerNotifyHire: (name, phone, style) =>
-    `🔥 *NOVO LEAD — QUER CONTRATAR*\n\n` +
-    `Nome: ${name}\n` +
-    `Telefone: ${phone}\n` +
-    `Estilo escolhido: ${style}\n` +
-    `Decisão: Quer CONTRATAR o pacote completo\n\n` +
-    `💰 Lead informado sobre os pacotes:\n` +
-    `- Essencial: R$ 97,00 (6 fotos)\n` +
-    `- Completo: R$ 149,00 (10 fotos)\n\n` +
-    `💰 Entre em contato agora para fechar!`,
+  // ── Notificação para o operador ────────────────────────
+  operatorNotifyPayment: (clientPhone) =>
+    `💰 *COMPROVANTE RECEBIDO!*\n\n` +
+    `📱 Cliente: ${clientPhone}\n\n` +
+    `Para liberar as fotos em alta resolução, responda:\n` +
+    `*LIBERAR ${clientPhone}*`,
+
+  operatorLiberarOk: (clientPhone) =>
+    `✅ Fotos enviadas para *${clientPhone}* com sucesso!`,
+
+  operatorLiberarNotFound: (clientPhone) =>
+    `❌ Sessão não encontrada para *${clientPhone}*.\n\n` +
+    `Verifique o número e tente novamente.\n` +
+    `_(use o número completo com DDI, ex: 5511999999999)_`,
+
+  operatorHelp: () =>
+    `🤖 *Comandos disponíveis:*\n\n` +
+    `• *LIBERAR [número]* — envia fotos finais ao cliente\n` +
+    `• *fim [número]* — encerra sessão de um lead\n` +
+    `• *sessões* — lista sessões ativas\n` +
+    `• *reativar [número]* — reativa sessão encerrada\n\n` +
+    `_Ex: LIBERAR 5511999999999_`,
+
+  // ── Erro de geração ────────────────────────────────────
+  generationError: () =>
+    `😔 Tive um problema ao criar as fotos. Pode me enviar a foto novamente?\n\n` +
+    `Se o erro persistir, nossa equipe vai te atender manualmente!`,
 };
 
 module.exports = { messages, STYLES };
