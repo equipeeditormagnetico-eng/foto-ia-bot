@@ -19,7 +19,7 @@ services:
 
   # ── Evolution API ─────────────────────────────────────────
   evolution-api:
-    image: atendai/evolution-api:latest
+    image: atendai/evolution-api:v2.x.x-latest
     container_name: evolution-api
     restart: unless-stopped
     ports:

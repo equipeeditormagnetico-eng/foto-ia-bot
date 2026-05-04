@@ -9,52 +9,51 @@ function headers() {
   return { apikey: API_KEY, 'Content-Type': 'application/json' };
 }
 
-// Remove qualquer sufixo @s.whatsapp.net / @lid / @g.us do JID
-// A Evolution API v1.8 espera apenas os dígitos no campo "number"
+// Remove sufixos @s.whatsapp.net / @lid / @g.us
+// Evolution API v2 aceita o número limpo OU o JID completo com @lid
 function toNumber(jidOrPhone) {
-  return String(jidOrPhone)
-    .replace(/@s\.whatsapp\.net$/, '')
-    .replace(/@lid$/, '')
-    .replace(/@g\.us$/, '')
-    .trim();
+  return String(jidOrPhone).trim();
+  // Nota: NÃO removemos @lid aqui — v2 aceita o JID completo para roteamento
+  // Se quiser forçar strip: .replace(/@[\w.]+$/, '')
 }
 
-// Envia mensagem de texto — Evolution API v1.8+
+// Envia mensagem de texto — Evolution API v2
 async function sendText(jidOrPhone, text) {
   const number = toNumber(jidOrPhone);
   const url    = `${BASE_URL}/message/sendText/${INSTANCE}`;
-  const body   = { number, textMessage: { text } };
 
-  console.log(`[whatsapp] sendText → URL: ${url}`);
-  console.log(`[whatsapp] sendText → body: ${JSON.stringify(body)}`);
+  // v2: campo "text" direto (não mais "textMessage.text")
+  const body = { number, text };
+
+  console.log(`[whatsapp] sendText → ${number}`);
+  console.log(`[whatsapp] sendText body: ${JSON.stringify(body)}`);
 
   try {
     const resp = await axios.post(url, body, { headers: headers(), timeout: 15_000 });
-    console.log(`[whatsapp] sendText ✅ status ${resp.status}`);
+    console.log(`[whatsapp] sendText ✅ ${resp.status}`);
     return resp.data;
   } catch (err) {
-    console.error(`[whatsapp] sendText ❌ status ${err.response?.status}`);
-    console.error(`[whatsapp] sendText ❌ response: ${JSON.stringify(err.response?.data)}`);
+    console.error(`[whatsapp] sendText ❌ ${err.response?.status} — ${JSON.stringify(err.response?.data)}`);
     throw err;
   }
 }
 
-// Envia imagem a partir de um Buffer JPEG — Evolution API v1.8+
+// Envia imagem a partir de Buffer JPEG — Evolution API v2
 async function sendImage(jidOrPhone, imageBuffer, caption = '') {
   const number = toNumber(jidOrPhone);
   const url    = `${BASE_URL}/message/sendMedia/${INSTANCE}`;
-  const body   = {
+
+  // v2: campos de mídia no nível raiz (não mais "mediaMessage" aninhado)
+  const body = {
     number,
-    mediaMessage: {
-      mediatype: 'image',
-      mimetype:  'image/jpeg',
-      caption,
-      media:     imageBuffer.toString('base64'),
-      fileName:  'ensaio.jpg',
-    },
+    mediatype: 'image',
+    mimetype:  'image/jpeg',
+    caption,
+    media:     imageBuffer.toString('base64'),
+    fileName:  'ensaio.jpg',
   };
 
-  console.log(`[whatsapp] sendImage → ${number} (${imageBuffer.length} bytes, caption: "${caption}")`);
+  console.log(`[whatsapp] sendImage → ${number} (${imageBuffer.length} bytes)`);
 
   try {
     const resp = await axios.post(url, body, {
@@ -63,11 +62,10 @@ async function sendImage(jidOrPhone, imageBuffer, caption = '') {
       maxBodyLength: Infinity,
       maxContentLength: Infinity,
     });
-    console.log(`[whatsapp] sendImage ✅ status ${resp.status}`);
+    console.log(`[whatsapp] sendImage ✅ ${resp.status}`);
     return resp.data;
   } catch (err) {
-    console.error(`[whatsapp] sendImage ❌ status ${err.response?.status}`);
-    console.error(`[whatsapp] sendImage ❌ response: ${JSON.stringify(err.response?.data)}`);
+    console.error(`[whatsapp] sendImage ❌ ${err.response?.status} — ${JSON.stringify(err.response?.data)}`);
     throw err;
   }
 }
@@ -75,7 +73,7 @@ async function sendImage(jidOrPhone, imageBuffer, caption = '') {
 // Baixa mídia de uma mensagem recebida — retorna { base64, mimetype }
 async function downloadMedia(messageKey) {
   const url = `${BASE_URL}/chat/getBase64FromMediaMessage/${INSTANCE}`;
-  console.log(`[whatsapp] downloadMedia → msg ${messageKey.id}`);
+  console.log(`[whatsapp] downloadMedia msg ${messageKey.id}`);
 
   const resp = await axios.post(
     url,
