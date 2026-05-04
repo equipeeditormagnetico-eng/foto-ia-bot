@@ -1,223 +1,177 @@
 require('dotenv').config();
 const { getSession, createSession, updateSession } = require('./session');
+const { saveImages, loadImages, markUsed, getUsedStatus } = require('./session');
 const { messages, STYLES } = require('./messages');
-const { sendText } = require('../services/whatsapp');
+const { sendText, sendImage, downloadMedia } = require('../services/whatsapp');
+const { generatePortraits, downloadImage } = require('../services/replicate');
+const { applyWatermark } = require('../services/watermark');
 
-const OWNER_PHONE   = process.env.OWNER_PHONE;
-const OWNER_PHONE_2 = process.env.OWNER_PHONE_2;
+// URLs de exemplo para prova social — substitua pelas suas reais
+const PROOF_IMAGES = [
+  process.env.PROOF_IMAGE_1 || 'https://picsum.photos/seed/mae1/800/1067',
+  process.env.PROOF_IMAGE_2 || 'https://picsum.photos/seed/mae2/800/1067',
+];
 
-// Remove prefixo 55 do número para exibição na notificação
-function formatPhone(phone) {
-  return phone.replace(/^55/, '');
-}
-
-// Envia notificação para todos os números do dono configurados
-async function sendOwnerNotification(text) {
-  const targets = [OWNER_PHONE, OWNER_PHONE_2].filter(Boolean);
-  await Promise.all(targets.map((n) => sendText(n, text)));
-}
-
-// Resolve qual chave de estilo o lead quis dizer (1–10)
+// ── Detecta estilo a partir do texto digitado ──────────────
 function parseStyle(text) {
-  // Aceitar número exato digitado
-  if (['1','2','3','4','5','6','7','8','9','10'].includes(text)) return text;
-
-  // Palavras-chave por estilo
-  if (text.includes('executivo') || text.includes('empresarial') || text.includes('empresa')) return '1';
-  if (text.includes('saude') || text.includes('saúde') || text.includes('medico') ||
-      text.includes('médico') || text.includes('enfermeiro') || text.includes('doutor')) return '2';
-  if (text.includes('empreendedor') || text.includes('negocio') ||
-      text.includes('negócio') || text.includes('local')) return '3';
-  if (text.includes('feminino') || text.includes('autoestima') || text.includes('feminina')) return '4';
-  if (text.includes('maes') || text.includes('mães') || text.includes('mae') || text.includes('mãe')) return '5';
-  if (text.includes('casal') || text.includes('romantico') ||
-      text.includes('romântico') || text.includes('namorado')) return '6';
-  if (text.includes('gestante') || text.includes('gravida') || text.includes('grávida')) return '7';
-  if (text.includes('fitness') || text.includes('corpo') ||
-      text.includes('academia') || text.includes('musculação') || text.includes('musculacao')) return '8';
-  if (text.includes('perfil') || text.includes('redes sociais') ||
-      text.includes('social') || text.includes('instagram')) return '9';
-  if (text.includes('datas') || text.includes('comemorativa') ||
-      text.includes('aniversario') || text.includes('formatura')) return '10';
-
+  if (text === '1' || text.includes('estudio') || text.includes('estúdio') || text.includes('profissional')) return 'estudio';
+  if (text === '2' || text.includes('jardim') || text.includes('flor'))  return 'jardim';
+  if (text === '3' || text.includes('sol') || text.includes('sunset') || text.includes('dourado')) return 'pordosol';
   return null;
 }
 
-// Detecta se o lead está perguntando sobre preço/valor
-// Usado tanto no GET_NAME quanto no GET_DECISION
-function isPricingQuestion(text) {
-  const keywords = ['valor', 'preço', 'preco', 'quanto', 'custa', 'custo', 'como funciona', 'pacote', 'plano', '?'];
-  return keywords.some((kw) => text.includes(kw));
-}
+// ── Fluxo principal ────────────────────────────────────────
+// phone      — número limpo (sem @s.whatsapp.net)
+// rawText    — texto da mensagem ('' para imagens)
+// message    — objeto bruto da Evolution API
+// messageKey — { id, fromMe, remoteJid } para download de mídia
+async function handleMessage(phone, rawText, message, messageKey) {
 
-// Resolve se o lead escolheu teste ou contratar
-// Retorna: 'TESTE' | 'CONTRATAR' | 'PRICING' | null
-function parseDecision(text) {
-  // Perguntas sobre preço têm prioridade antes de checar letras isoladas
-  if (isPricingQuestion(text)) return 'PRICING';
-
-  // Opção B — contratar (checar antes do 'a' para evitar falso positivo em "pacote")
-  if (text === 'b' || text.includes('contratar') || text.includes('pacote') ||
-      text.includes('completo') || text.includes('direto') || text.includes('garantir')) return 'CONTRATAR';
-
-  // Opção A — teste gratuito
-  if (text === 'a' || text.includes('teste') || text.includes('grátis') ||
-      text.includes('gratis') || text.includes('gratuito') || text.includes('free')) return 'TESTE';
-
-  return null;
-}
-
-// Disparado 30s após a primeira foto recebida no estado WAITING_PHOTOS
-async function processPhotosTimeout(phone) {
-  const session = getSession(phone);
-  if (!session || session.state !== 'WAITING_PHOTOS') return;
-
-  const photoCount = session.photoCount || 0;
-  const displayPhone = formatPhone(phone);
-
-  // Marcar como finalizado IMEDIATAMENTE — antes de qualquer await —
-  // para que novas mensagens recebidas durante os envios sejam ignoradas.
-  updateSession(phone, { state: 'DONE', finished: true });
-  console.log(`[handler] Lead ${phone} (${session.name}) finalizado | fotos: ${photoCount}`);
-
-  try {
-    await sendText(phone, messages.confirmPhotosReceived());
-    await sendOwnerNotification(
-      messages.ownerNotifyTestPhotos(session.name, displayPhone, session.style, photoCount)
-    );
-  } catch (err) {
-    console.error(`[handler] Erro ao enviar confirmação de fotos para ${phone}:`, err.message);
-  }
-}
-
-// phone    — número limpo (sem @s.whatsapp.net)
-// rawText  — texto da mensagem (vazio para imagens)
-// message  — objeto bruto da Evolution API (para detectar imageMessage)
-async function handleMessage(phone, rawText, message) {
-  // ── PRIMEIRA verificação: sessão finalizada ──────────────────────────────
-  // Executada antes de qualquer outro código, inclusive criação de sessão e logs.
-  // Garante que nenhuma mensagem posterior ao DONE seja processada.
-  const existingSession = getSession(phone);
-  if (existingSession?.finished === true) {
-    console.log(`[handler] Sessão finalizada para ${phone} — mensagem ignorada`);
+  // Sessão finalizada: ignora tudo
+  const existing = getSession(phone);
+  if (existing?.finished === true) {
+    console.log(`[handler] Sessão finalizada para ${phone} — ignorado`);
     return;
   }
 
-  const text = rawText.trim().toLowerCase();
-
-  let session = existingSession;
-  if (!session) {
-    session = createSession(phone);
-    console.log(`[handler] Nova sessão criada para ${phone} | estado: WELCOME`);
-  }
-
-  // Detectar se a mensagem é uma imagem
+  const text    = rawText.trim().toLowerCase();
   const isImage = !!message?.imageMessage;
 
-  console.log(`[handler] ${phone} | estado: ${session.state} | ${isImage ? '[IMAGEM]' : `"${rawText}"`}`);
+  // Garante que a sessão existe
+  const session = existing || createSession(phone);
+
+  console.log(`[handler] ${phone} | ${session.state} | ${isImage ? '[IMAGEM]' : `"${rawText}"`}`);
 
   switch (session.state) {
+
+    // ── WELCOME ─────────────────────────────────────────────
+    // Primeira mensagem: verifica se o número já tem prévia não paga
     case 'WELCOME': {
+      const used = await getUsedStatus(phone);
+
+      if (used.hasPreview && !used.hasFinalPhotos) {
+        // Já gerou preview mas não pagou — recoloca no estado certo
+        updateSession(phone, { state: 'WAITING_PAYMENT' });
+        await sendText(phone, messages.alreadyHasPreview());
+        return;
+      }
+
       await sendText(phone, messages.welcome());
-      updateSession(phone, { state: 'GET_NAME' });
+      updateSession(phone, { state: 'WAITING_STYLE' });
       break;
     }
 
-    case 'GET_NAME': {
-      // Se o lead perguntar sobre preço antes de informar o nome,
-      // exibir tabela anônima e permanecer em GET_NAME sem salvar como nome
-      if (isPricingQuestion(text)) {
-        console.log(`[handler] Lead ${phone} perguntou sobre preços antes de informar o nome`);
-        await sendText(phone, messages.pricingInfoAnonymous());
-        return;
-      }
+    // ── WAITING_STYLE ────────────────────────────────────────
+    case 'WAITING_STYLE': {
+      const estilo = parseStyle(text);
 
-      // Mensagens automáticas de saudação do Meta/Instagram chegam com
-      // messageContextInfo mas o texto é extraído normalmente pelo index.js.
-      // Se por algum motivo chegarem vazias aqui, ignoramos sem quebrar o fluxo.
-      const name = rawText.trim();
-      if (!name) {
-        console.log(`[handler] GET_NAME: rawText vazio — ignorado (possível saudação automática)`);
-        return;
-      }
-
-      updateSession(phone, { name, state: 'GET_STYLE' });
-
-      // Log de confirmação: verifica se o estado foi realmente atualizado
-      console.log('[handler] Nome salvo:', name, '| Novo estado:', session.state);
-
-      await sendText(phone, messages.askStyle(name));
-      break;
-    }
-
-    case 'GET_STYLE': {
-      const styleKey = parseStyle(text);
-      if (!styleKey) {
+      if (!estilo) {
         await sendText(phone, messages.invalidStyle());
         return;
       }
-      const styleName = STYLES[styleKey];
-      updateSession(phone, { style: styleName, state: 'GET_DECISION' });
-      await sendText(phone, messages.askDecision(session.name, styleName));
+
+      const styleName = STYLES[estilo];
+      updateSession(phone, { estilo, state: 'WAITING_PHOTO' });
+
+      // Prova social
+      await sendText(phone, messages.proofIntro(styleName));
+      for (const url of PROOF_IMAGES) {
+        try {
+          const buf = await downloadImage(url);
+          await sendImage(phone, buf);
+        } catch {
+          // Imagem de exemplo falhou — silencia
+        }
+      }
+      await sendText(phone, messages.proofOutro());
       break;
     }
 
-    case 'GET_DECISION': {
-      const decision = parseDecision(text);
-
-      // Lead perguntou sobre preço/valor → mostrar tabela usando nome salvo na sessão
-      if (decision === 'PRICING') {
-        console.log(`[handler] Lead ${phone} (${session.name}) perguntou sobre preços`);
-        await sendText(phone, messages.pricingInfo(session.name)); // session.name, nunca rawText
-        return;
-      }
-
-      // Resposta não reconhecida → repetir opções A/B
-      if (!decision) {
-        await sendText(phone, messages.invalidDecision());
-        return;
-      }
-
-      if (decision === 'TESTE') {
-        // AJUSTE 3 — Não finaliza aqui: aguarda envio das fotos
-        await sendText(phone, messages.askPhotos());
-        updateSession(phone, { state: 'WAITING_PHOTOS', photoCount: 0, photoTimer: null });
-        console.log(`[handler] Lead ${phone} (${session.name}) escolheu TESTE GRATUITO → aguardando fotos`);
-      } else {
-        // CONTRATAR: marcar como finalizado IMEDIATAMENTE antes dos awaits,
-        // evitando race condition caso o lead envie mensagem durante os envios.
-        updateSession(phone, { state: 'DONE', finished: true });
-        console.log(`[handler] Lead ${phone} (${session.name}) quer CONTRATAR — finalizado`);
-        await sendText(phone, messages.confirmHire(session.name));
-        await sendOwnerNotification(messages.ownerNotifyHire(session.name, formatPhone(phone), session.style));
-      }
-      break;
-    }
-
-    // AJUSTE 3 — Estado de espera pelas fotos do teste gratuito
-    case 'WAITING_PHOTOS': {
-      // Ignorar mensagens de texto silenciosamente — aguardar apenas imagens
+    // ── WAITING_PHOTO ────────────────────────────────────────
+    case 'WAITING_PHOTO': {
       if (!isImage) {
-        console.log(`[handler] Lead ${phone} enviou texto em WAITING_PHOTOS — aguardando imagens`);
+        await sendText(phone, messages.needPhoto());
         return;
       }
 
-      const newCount = (session.photoCount || 0) + 1;
-      updateSession(phone, { photoCount: newCount });
-      console.log(`[handler] Lead ${phone} (${session.name}) enviou foto ${newCount}`);
+      await sendText(phone, messages.photoReceived());
 
-      // Iniciar timer de 30s somente na primeira imagem recebida
-      if (newCount === 1) {
-        const timer = setTimeout(() => processPhotosTimeout(phone), 30_000);
-        updateSession(phone, { photoTimer: timer });
-        console.log(`[handler] Timer de 30s iniciado para ${phone}`);
+      let imageUrls;
+      try {
+        // Gera 3 portraits com Replicate
+        imageUrls = await generatePortraits(session.estilo || 'estudio', 3);
+      } catch (err) {
+        console.error(`[handler] Replicate falhou para ${phone}:`, err.message);
+        await sendText(phone, messages.generationError());
+        return;
+      }
+
+      // Baixa, aplica marca d'água e envia cada imagem
+      await sendText(phone, messages.previewIntro());
+
+      const finalBuffers = []; // buffers originais (sem marca) para LIBERAR depois
+
+      for (let i = 0; i < imageUrls.length; i++) {
+        const original = await downloadImage(imageUrls[i]);
+        finalBuffers.push(original);
+
+        const preview = await applyWatermark(original);
+        await sendImage(phone, preview, `📸 Foto ${i + 1} de ${imageUrls.length}`);
+
+        // Pequena pausa para não travar o WhatsApp do cliente
+        if (i < imageUrls.length - 1) await new Promise((r) => setTimeout(r, 2000));
+      }
+
+      // Persiste as imagens originais para envio após pagamento
+      await saveImages(phone, finalBuffers);
+      await markUsed(phone, { hasPreview: true });
+
+      await sendText(phone, messages.previewPayment());
+      updateSession(phone, { state: 'WAITING_PAYMENT' });
+      break;
+    }
+
+    // ── WAITING_PAYMENT ──────────────────────────────────────
+    case 'WAITING_PAYMENT': {
+      if (!isImage) {
+        await sendText(phone, messages.needProof());
+        return;
+      }
+
+      // Recebeu comprovante — notifica operador e aguarda liberação manual
+      await sendText(phone, messages.paymentReceived());
+      updateSession(phone, { state: 'PENDING_RELEASE' });
+
+      const OPERATOR = process.env.OPERATOR_PHONE;
+      if (OPERATOR) {
+        // Encaminha o comprovante para o operador
+        try {
+          const { base64, mimetype } = await downloadMedia(messageKey);
+          if (base64) {
+            const buf = Buffer.from(base64, 'base64');
+            await sendImage(OPERATOR, buf, messages.operatorNotifyPayment(phone));
+          } else {
+            await sendText(OPERATOR, messages.operatorNotifyPayment(phone));
+          }
+        } catch {
+          await sendText(OPERATOR, messages.operatorNotifyPayment(phone));
+        }
       }
       break;
     }
 
+    // ── PENDING_RELEASE ──────────────────────────────────────
+    // Cliente aguarda o operador rodar LIBERAR no WhatsApp do operador.
+    // Qualquer mensagem enquanto aguarda recebe esta resposta silenciosa.
+    case 'PENDING_RELEASE': {
+      // Sem resposta automática para não criar pressão — o operador já foi avisado
+      console.log(`[handler] ${phone} em PENDING_RELEASE — aguardando operador`);
+      break;
+    }
+
+    // ── DONE ─────────────────────────────────────────────────
     case 'DONE': {
-      // Nunca deve ser alcançado pois finished=true é verificado no início
-      console.log(`[handler] Lead ${phone} em DONE (estado inesperado) — ignorado`);
+      console.log(`[handler] ${phone} em DONE — ignorado`);
       break;
     }
 

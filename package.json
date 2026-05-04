@@ -1,7 +1,7 @@
 {
-  "name": "atendente-fotos-ia",
-  "version": "1.0.0",
-  "description": "Atendente WhatsApp para qualificação de leads de ensaios fotográficos com IA",
+  "name": "ensaio-das-maes-bot",
+  "version": "2.0.0",
+  "description": "Bot WhatsApp para venda de ensaios fotográficos com IA — Dia das Mães",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -10,6 +10,7 @@
   "dependencies": {
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "sharp": "^0.33.4"
   }
 }
