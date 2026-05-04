@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const { handleMessage }       = require('./bot/handler');
+const { handleMessage }         = require('./bot/handler');
 const { handleOperatorCommand } = require('./bot/operator');
 const { getSession, updateSession } = require('./bot/session');
 
@@ -10,18 +10,15 @@ app.use(express.json());
 const PORT           = process.env.PORT           || 3000;
 const OPERATOR_PHONE = process.env.OPERATOR_PHONE || '';
 
-// Health check para Railway / Docker
+// ── Health check ───────────────────────────────────────────
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Diagnóstico de variáveis e conectividade com a Evolution API
-// Remova esta rota depois que tudo estiver funcionando
+// ── Debug: variáveis e conectividade ──────────────────────
 app.get('/debug', async (_req, res) => {
-  const axios = require('axios');
-  const evoUrl  = process.env.EVOLUTION_API_URL || '(NÃO DEFINIDO)';
-  const evoKey  = process.env.EVOLUTION_API_KEY  ? '***' + process.env.EVOLUTION_API_KEY.slice(-4) : '(NÃO DEFINIDO)';
-  const evoInst = process.env.EVOLUTION_INSTANCE || '(NÃO DEFINIDO)';
+  const axios  = require('axios');
+  const evoUrl = process.env.EVOLUTION_API_URL || '(NÃO DEFINIDO)';
 
   let evoStatus = 'não testado';
   let evoError  = null;
@@ -37,40 +34,49 @@ app.get('/debug', async (_req, res) => {
   }
 
   res.json({
-    EVOLUTION_API_URL:  evoUrl,
-    EVOLUTION_API_KEY:  evoKey,
-    EVOLUTION_INSTANCE: evoInst,
+    EVOLUTION_API_URL:   evoUrl,
+    EVOLUTION_API_KEY:   process.env.EVOLUTION_API_KEY  ? '***' + process.env.EVOLUTION_API_KEY.slice(-4)  : '(NÃO DEFINIDO)',
+    EVOLUTION_INSTANCE:  process.env.EVOLUTION_INSTANCE  || '(NÃO DEFINIDO)',
     REPLICATE_API_TOKEN: process.env.REPLICATE_API_TOKEN ? '***' + process.env.REPLICATE_API_TOKEN.slice(-4) : '(NÃO DEFINIDO)',
-    OPERATOR_PHONE: process.env.OPERATOR_PHONE || '(NÃO DEFINIDO)',
-    MINHA_CHAVE_PIX: process.env.MINHA_CHAVE_PIX || '(NÃO DEFINIDO)',
+    OPERATOR_PHONE:      process.env.OPERATOR_PHONE      || '(NÃO DEFINIDO)',
+    MINHA_CHAVE_PIX:     process.env.MINHA_CHAVE_PIX     || '(NÃO DEFINIDO)',
     evolution_connectivity: evoStatus,
-    evolution_error: evoError,
+    evolution_error:     evoError,
   });
 });
 
+// ── Webhook principal ──────────────────────────────────────
 app.post('/webhook', async (req, res) => {
-  // Responde imediatamente para a Evolution API não retentar
+  // Responde 200 imediatamente para a Evolution API não retentar
   res.sendStatus(200);
 
   try {
     const body = req.body;
 
-    // A Evolution API envolve o payload em diferentes estruturas.
-    // Suporte ao formato padrão: { event, data: { key, message, ... } }
-    const data = body?.data ?? body;
+    // ── LOG COMPLETO do payload bruto (diagnóstico) ──────────
+    console.log('[webhook] RAW payload:', JSON.stringify(body, null, 2));
+
+    // ── Normaliza estrutura do payload ───────────────────────
+    // Evolution API v1.8 pode enviar:
+    //   { event, instance, data: { key, message, ... } }   ← objeto
+    //   { event, instance, data: [{ key, message }] }      ← array
+    //   { key, message, ... }                               ← sem wrapper
+    let data = body?.data ?? body;
+    if (Array.isArray(data)) {
+      console.log(`[webhook] data é ARRAY (${data.length} itens) — usando primeiro`);
+      data = data[0];
+    }
 
     const key     = data?.key;
     const message = data?.message;
 
     if (!key || !message) {
-      console.log('[webhook] Payload sem key/message — ignorado');
+      console.log('[webhook] Sem key/message — ignorado. data:', JSON.stringify(data));
       return;
     }
 
     const remoteJid = key.remoteJid ?? '';
-
-    // Número limpo — suporta @s.whatsapp.net e @lid (Meta/Instagram)
-    const phone = remoteJid
+    const phone     = remoteJid
       .replace('@s.whatsapp.net', '')
       .replace('@lid', '');
 
@@ -80,38 +86,37 @@ app.post('/webhook', async (req, res) => {
       'unknown';
 
     const sessionForLog = getSession(phone);
-    console.log(`[webhook] De: ${remoteJid} | Tipo: ${messageType} | Estado: ${sessionForLog?.state ?? 'nova'}`);
+    console.log(`[webhook] ✉️  De: ${remoteJid} | Tipo: ${messageType} | Estado: ${sessionForLog?.state ?? 'nova'}`);
 
-    // Ignora mensagens de grupos
+    // Ignora grupos
     if (remoteJid.endsWith('@g.us')) {
-      console.log(`[webhook] Grupo — ignorado`);
+      console.log('[webhook] Grupo — ignorado');
       return;
     }
 
-    // ── fromMe: detecta se foi o operador digitando manualmente ──────────
+    // fromMe — detecta operador digitando manualmente
     if (key.fromMe === true) {
-      const senderJid  = data?.participant ?? key?.participant ?? data?.sender ?? '';
+      const senderJid   = data?.participant ?? key?.participant ?? data?.sender ?? '';
       const senderPhone = senderJid.replace('@s.whatsapp.net', '').replace('@lid', '');
-      const isOperatorManual = OPERATOR_PHONE && senderPhone === OPERATOR_PHONE;
+      const isOperator  = OPERATOR_PHONE && senderPhone === OPERATOR_PHONE;
 
-      if (isOperatorManual) {
+      if (isOperator) {
         const lead = getSession(phone);
         if (lead && !lead.finished) {
           updateSession(phone, { finished: true });
           console.log(`[webhook] Operador assumiu ${phone} — sessão finalizada`);
         }
       } else {
-        console.log(`[webhook] fromMe (bot automático) — ignorado`);
+        console.log('[webhook] fromMe (bot automático) — ignorado');
       }
       return;
     }
 
-    // ── Comandos do operador ──────────────────────────────────────────────
+    // Comandos do operador (mensagem recebida DO operador)
     if (OPERATOR_PHONE && phone === OPERATOR_PHONE) {
       const text =
         message?.conversation ||
-        message?.extendedTextMessage?.text ||
-        '';
+        message?.extendedTextMessage?.text || '';
       if (text) {
         console.log(`[webhook] Operador: "${text}"`);
         await handleOperatorCommand(phone, text);
@@ -119,7 +124,7 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // ── Fluxo normal de clientes ──────────────────────────────────────────
+    // Fluxo normal de clientes
     const text =
       message?.conversation ||
       message?.extendedTextMessage?.text ||
@@ -135,13 +140,13 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    console.log(`[webhook] Processando ${phone}: ${isImage ? '[IMAGEM]' : `"${text}"`}`);
-
-    // Passa o messageKey para o handler poder baixar mídia (comprovante de PIX)
+    console.log(`[webhook] ▶ Processando ${phone}: ${isImage ? '[IMAGEM]' : `"${text}"`}`);
     await handleMessage(phone, text, message, key);
+    console.log(`[webhook] ✅ handleMessage concluído para ${phone}`);
 
   } catch (err) {
-    console.error('[webhook] Erro:', err.message);
+    console.error('[webhook] ❌ Erro:', err.message);
+    console.error(err.stack);
   }
 });
 
@@ -149,5 +154,6 @@ app.listen(PORT, () => {
   console.log(`[server] Bot rodando na porta ${PORT}`);
   console.log(`[server] Webhook:  POST http://localhost:${PORT}/webhook`);
   console.log(`[server] Health:   GET  http://localhost:${PORT}/health`);
+  console.log(`[server] Debug:    GET  http://localhost:${PORT}/debug`);
   console.log(`[server] Operador: ${OPERATOR_PHONE || '(não configurado)'}`);
 });
