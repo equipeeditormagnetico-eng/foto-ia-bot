@@ -7,9 +7,11 @@ const { generatePortraits, downloadImage } = require('../services/replicate');
 const { applyWatermark } = require('../services/watermark');
 
 // URLs de exemplo para prova social — substitua pelas suas reais
+// Cada entrada: [url, legenda]
 const PROOF_IMAGES = [
-  process.env.PROOF_IMAGE_1 || 'https://picsum.photos/seed/mae1/800/1067',
-  process.env.PROOF_IMAGE_2 || 'https://picsum.photos/seed/mae2/800/1067',
+  [process.env.PROOF_IMAGE_1 || 'https://picsum.photos/seed/mae1/800/1067', 'Ela enviou essa foto 👇'],
+  [process.env.PROOF_IMAGE_2 || 'https://picsum.photos/seed/mae2/800/1067', 'E recebeu esse resultado 😍'],
+  [process.env.PROOF_IMAGE_3 || 'https://picsum.photos/seed/mae3/800/1067', 'Outra cliente nossa 🌸'],
 ];
 
 // ── Detecta estilo a partir do texto digitado ──────────────
@@ -73,14 +75,14 @@ async function handleMessage(phone, rawText, message, messageKey) {
       const styleName = STYLES[estilo];
       updateSession(phone, { estilo, state: 'WAITING_PHOTO' });
 
-      // Prova social
+      // Prova social — 3 imagens com legenda individual
       await sendText(phone, messages.proofIntro(styleName));
-      for (const url of PROOF_IMAGES) {
+      for (const [url, caption] of PROOF_IMAGES) {
         try {
           const buf = await downloadImage(url);
-          await sendImage(phone, buf);
+          await sendImage(phone, buf, caption);
         } catch {
-          // Imagem de exemplo falhou — silencia
+          // Imagem de exemplo falhou — silencia e continua
         }
       }
       await sendText(phone, messages.proofOutro());
