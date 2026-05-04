@@ -23,11 +23,13 @@ function parseStyle(text) {
 }
 
 // ── Fluxo principal ────────────────────────────────────────
-// phone      — número limpo (sem @s.whatsapp.net)
-// rawText    — texto da mensagem ('' para imagens)
-// message    — objeto bruto da Evolution API
+// phone     — número limpo, usado APENAS como chave de sessão
+// remoteJid — JID completo (ex: 5511...@s.whatsapp.net ou @lid)
+//             usado em TODOS os envios de mensagem
+// rawText   — texto da mensagem
+// message   — objeto bruto da Evolution API
 // messageKey — { id, fromMe, remoteJid } para download de mídia
-async function handleMessage(phone, rawText, message, messageKey) {
+async function handleMessage(phone, remoteJid, rawText, message, messageKey) {
 
   // Sessão finalizada: ignora tudo
   const existing = getSession(phone);
@@ -39,26 +41,29 @@ async function handleMessage(phone, rawText, message, messageKey) {
   const text    = rawText.trim().toLowerCase();
   const isImage = !!message?.imageMessage;
 
-  // Garante que a sessão existe
+  // Cria sessão se não existir e armazena o remoteJid correto
   const session = existing || createSession(phone);
+  if (!session.remoteJid) {
+    updateSession(phone, { remoteJid });
+  }
+  // jid é sempre o remoteJid mais recente (pode atualizar se mudar de dispositivo)
+  const jid = session.remoteJid || remoteJid;
 
-  console.log(`[handler] ${phone} | ${session.state} | ${isImage ? '[IMAGEM]' : `"${rawText}"`}`);
+  console.log(`[handler] ${phone} | ${session.state} | jid: ${jid} | ${isImage ? '[IMAGEM]' : `"${rawText}"`}`);
 
   switch (session.state) {
 
     // ── WELCOME ─────────────────────────────────────────────
-    // Primeira mensagem: verifica se o número já tem prévia não paga
     case 'WELCOME': {
       const used = await getUsedStatus(phone);
 
       if (used.hasPreview && !used.hasFinalPhotos) {
-        // Já gerou preview mas não pagou — recoloca no estado certo
         updateSession(phone, { state: 'WAITING_PAYMENT' });
-        await sendText(phone, messages.alreadyHasPreview());
+        await sendText(jid, messages.alreadyHasPreview());
         return;
       }
 
-      await sendText(phone, messages.welcome());
+      await sendText(jid, messages.welcome());
       updateSession(phone, { state: 'WAITING_STYLE' });
       break;
     }
@@ -68,7 +73,7 @@ async function handleMessage(phone, rawText, message, messageKey) {
       const estilo = parseStyle(text);
 
       if (!estilo) {
-        await sendText(phone, messages.invalidStyle());
+        await sendText(jid, messages.invalidStyle());
         return;
       }
 
@@ -76,59 +81,54 @@ async function handleMessage(phone, rawText, message, messageKey) {
       updateSession(phone, { estilo, state: 'WAITING_PHOTO' });
 
       // Prova social — 3 imagens com legenda individual
-      await sendText(phone, messages.proofIntro(styleName));
+      await sendText(jid, messages.proofIntro(styleName));
       for (const [url, caption] of PROOF_IMAGES) {
         try {
           const buf = await downloadImage(url);
-          await sendImage(phone, buf, caption);
+          await sendImage(jid, buf, caption);
         } catch {
           // Imagem de exemplo falhou — silencia e continua
         }
       }
-      await sendText(phone, messages.proofOutro());
+      await sendText(jid, messages.proofOutro());
       break;
     }
 
     // ── WAITING_PHOTO ────────────────────────────────────────
     case 'WAITING_PHOTO': {
       if (!isImage) {
-        await sendText(phone, messages.needPhoto());
+        await sendText(jid, messages.needPhoto());
         return;
       }
 
-      await sendText(phone, messages.photoReceived());
+      await sendText(jid, messages.photoReceived());
 
       let imageUrls;
       try {
-        // Gera 3 portraits com Replicate
         imageUrls = await generatePortraits(session.estilo || 'estudio', 3);
       } catch (err) {
         console.error(`[handler] Replicate falhou para ${phone}:`, err.message);
-        await sendText(phone, messages.generationError());
+        await sendText(jid, messages.generationError());
         return;
       }
 
-      // Baixa, aplica marca d'água e envia cada imagem
-      await sendText(phone, messages.previewIntro());
+      await sendText(jid, messages.previewIntro());
 
-      const finalBuffers = []; // buffers originais (sem marca) para LIBERAR depois
-
+      const finalBuffers = [];
       for (let i = 0; i < imageUrls.length; i++) {
         const original = await downloadImage(imageUrls[i]);
         finalBuffers.push(original);
 
         const preview = await applyWatermark(original);
-        await sendImage(phone, preview, `📸 Foto ${i + 1} de ${imageUrls.length}`);
+        await sendImage(jid, preview, `📸 Foto ${i + 1} de ${imageUrls.length}`);
 
-        // Pequena pausa para não travar o WhatsApp do cliente
         if (i < imageUrls.length - 1) await new Promise((r) => setTimeout(r, 2000));
       }
 
-      // Persiste as imagens originais para envio após pagamento
       await saveImages(phone, finalBuffers);
       await markUsed(phone, { hasPreview: true });
 
-      await sendText(phone, messages.previewPayment());
+      await sendText(jid, messages.previewPayment());
       updateSession(phone, { state: 'WAITING_PAYMENT' });
       break;
     }
@@ -136,37 +136,33 @@ async function handleMessage(phone, rawText, message, messageKey) {
     // ── WAITING_PAYMENT ──────────────────────────────────────
     case 'WAITING_PAYMENT': {
       if (!isImage) {
-        await sendText(phone, messages.needProof());
+        await sendText(jid, messages.needProof());
         return;
       }
 
-      // Recebeu comprovante — notifica operador e aguarda liberação manual
-      await sendText(phone, messages.paymentReceived());
+      await sendText(jid, messages.paymentReceived());
       updateSession(phone, { state: 'PENDING_RELEASE' });
 
       const OPERATOR = process.env.OPERATOR_PHONE;
       if (OPERATOR) {
-        // Encaminha o comprovante para o operador
         try {
           const { base64, mimetype } = await downloadMedia(messageKey);
           if (base64) {
             const buf = Buffer.from(base64, 'base64');
-            await sendImage(OPERATOR, buf, messages.operatorNotifyPayment(phone));
+            // Envia o comprovante para o operador usando o número limpo dele
+            await sendImage(OPERATOR + '@s.whatsapp.net', buf, messages.operatorNotifyPayment(phone));
           } else {
-            await sendText(OPERATOR, messages.operatorNotifyPayment(phone));
+            await sendText(OPERATOR + '@s.whatsapp.net', messages.operatorNotifyPayment(phone));
           }
         } catch {
-          await sendText(OPERATOR, messages.operatorNotifyPayment(phone));
+          await sendText(OPERATOR + '@s.whatsapp.net', messages.operatorNotifyPayment(phone));
         }
       }
       break;
     }
 
     // ── PENDING_RELEASE ──────────────────────────────────────
-    // Cliente aguarda o operador rodar LIBERAR no WhatsApp do operador.
-    // Qualquer mensagem enquanto aguarda recebe esta resposta silenciosa.
     case 'PENDING_RELEASE': {
-      // Sem resposta automática para não criar pressão — o operador já foi avisado
       console.log(`[handler] ${phone} em PENDING_RELEASE — aguardando operador`);
       break;
     }

@@ -19,19 +19,13 @@ app.get('/health', (_req, res) => {
 app.get('/debug', async (_req, res) => {
   const axios  = require('axios');
   const evoUrl = process.env.EVOLUTION_API_URL || '(NÃO DEFINIDO)';
-
-  let evoStatus = 'não testado';
-  let evoError  = null;
+  let evoStatus = 'não testado', evoError = null;
   try {
     const r = await axios.get(evoUrl.replace(/\/$/, '') + '/instance/fetchInstances', {
-      headers: { apikey: process.env.EVOLUTION_API_KEY },
-      timeout: 5000,
+      headers: { apikey: process.env.EVOLUTION_API_KEY }, timeout: 5000,
     });
     evoStatus = `OK (${r.status})`;
-  } catch (e) {
-    evoStatus = 'ERRO';
-    evoError  = e.message;
-  }
+  } catch (e) { evoStatus = 'ERRO'; evoError = e.message; }
 
   res.json({
     EVOLUTION_API_URL:   evoUrl,
@@ -47,23 +41,16 @@ app.get('/debug', async (_req, res) => {
 
 // ── Webhook principal ──────────────────────────────────────
 app.post('/webhook', async (req, res) => {
-  // Responde 200 imediatamente para a Evolution API não retentar
   res.sendStatus(200);
 
   try {
     const body = req.body;
+    console.log('[webhook] RAW:', JSON.stringify(body));
 
-    // ── LOG COMPLETO do payload bruto (diagnóstico) ──────────
-    console.log('[webhook] RAW payload:', JSON.stringify(body, null, 2));
-
-    // ── Normaliza estrutura do payload ───────────────────────
-    // Evolution API v1.8 pode enviar:
-    //   { event, instance, data: { key, message, ... } }   ← objeto
-    //   { event, instance, data: [{ key, message }] }      ← array
-    //   { key, message, ... }                               ← sem wrapper
+    // Normaliza: data pode ser objeto ou array (v1.8+)
     let data = body?.data ?? body;
     if (Array.isArray(data)) {
-      console.log(`[webhook] data é ARRAY (${data.length} itens) — usando primeiro`);
+      console.log(`[webhook] data é array — usando primeiro item`);
       data = data[0];
     }
 
@@ -71,22 +58,25 @@ app.post('/webhook', async (req, res) => {
     const message = data?.message;
 
     if (!key || !message) {
-      console.log('[webhook] Sem key/message — ignorado. data:', JSON.stringify(data));
+      console.log('[webhook] Sem key/message — ignorado');
       return;
     }
 
+    // remoteJid completo (ex: "5511...@s.whatsapp.net" ou "1178...@lid")
     const remoteJid = key.remoteJid ?? '';
-    const phone     = remoteJid
-      .replace('@s.whatsapp.net', '')
-      .replace('@lid', '');
+
+    // phone limpo — usado APENAS como chave de sessão, nunca para envio
+    const phone = remoteJid
+      .replace(/@s\.whatsapp\.net$/, '')
+      .replace(/@lid$/, '')
+      .replace(/@g\.us$/, '');
 
     const messageType =
       Object.keys(message).find((k) => k !== 'messageContextInfo') ||
-      Object.keys(message)[0] ||
-      'unknown';
+      Object.keys(message)[0] || 'unknown';
 
     const sessionForLog = getSession(phone);
-    console.log(`[webhook] ✉️  De: ${remoteJid} | Tipo: ${messageType} | Estado: ${sessionForLog?.state ?? 'nova'}`);
+    console.log(`[webhook] De: ${remoteJid} | Tipo: ${messageType} | Estado: ${sessionForLog?.state ?? 'nova'}`);
 
     // Ignora grupos
     if (remoteJid.endsWith('@g.us')) {
@@ -94,13 +84,11 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // fromMe — detecta operador digitando manualmente
+    // fromMe — detecta operador digitando manualmente vs bot automático
     if (key.fromMe === true) {
       const senderJid   = data?.participant ?? key?.participant ?? data?.sender ?? '';
-      const senderPhone = senderJid.replace('@s.whatsapp.net', '').replace('@lid', '');
-      const isOperator  = OPERATOR_PHONE && senderPhone === OPERATOR_PHONE;
-
-      if (isOperator) {
+      const senderPhone = senderJid.replace(/@s\.whatsapp\.net$/, '').replace(/@lid$/, '');
+      if (OPERATOR_PHONE && senderPhone === OPERATOR_PHONE) {
         const lead = getSession(phone);
         if (lead && !lead.finished) {
           updateSession(phone, { finished: true });
@@ -114,9 +102,7 @@ app.post('/webhook', async (req, res) => {
 
     // Comandos do operador (mensagem recebida DO operador)
     if (OPERATOR_PHONE && phone === OPERATOR_PHONE) {
-      const text =
-        message?.conversation ||
-        message?.extendedTextMessage?.text || '';
+      const text = message?.conversation || message?.extendedTextMessage?.text || '';
       if (text) {
         console.log(`[webhook] Operador: "${text}"`);
         await handleOperatorCommand(phone, text);
@@ -130,19 +116,21 @@ app.post('/webhook', async (req, res) => {
       message?.extendedTextMessage?.text ||
       message?.buttonsResponseMessage?.selectedButtonId ||
       message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
-      message?.templateButtonReplyMessage?.selectedId ||
-      '';
+      message?.templateButtonReplyMessage?.selectedId || '';
 
     const isImage = !!message?.imageMessage;
 
     if (!text && !isImage) {
-      console.log(`[webhook] Tipo "${messageType}" sem texto nem imagem — ignorado`);
+      console.log(`[webhook] Tipo "${messageType}" sem texto/imagem — ignorado`);
       return;
     }
 
-    console.log(`[webhook] ▶ Processando ${phone}: ${isImage ? '[IMAGEM]' : `"${text}"`}`);
-    await handleMessage(phone, text, message, key);
-    console.log(`[webhook] ✅ handleMessage concluído para ${phone}`);
+    console.log(`[webhook] ▶ Processando ${phone} (jid: ${remoteJid}): ${isImage ? '[IMAGEM]' : `"${text}"`}`);
+
+    // IMPORTANTE: passa remoteJid separado do phone.
+    // phone → chave de sessão  |  remoteJid → destino dos envios
+    await handleMessage(phone, remoteJid, text, message, key);
+    console.log(`[webhook] ✅ Concluído para ${phone}`);
 
   } catch (err) {
     console.error('[webhook] ❌ Erro:', err.message);
@@ -152,8 +140,8 @@ app.post('/webhook', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[server] Bot rodando na porta ${PORT}`);
-  console.log(`[server] Webhook:  POST http://localhost:${PORT}/webhook`);
-  console.log(`[server] Health:   GET  http://localhost:${PORT}/health`);
-  console.log(`[server] Debug:    GET  http://localhost:${PORT}/debug`);
+  console.log(`[server] Webhook: POST http://localhost:${PORT}/webhook`);
+  console.log(`[server] Health:  GET  http://localhost:${PORT}/health`);
+  console.log(`[server] Debug:   GET  http://localhost:${PORT}/debug`);
   console.log(`[server] Operador: ${OPERATOR_PHONE || '(não configurado)'}`);
 });

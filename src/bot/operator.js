@@ -3,11 +3,18 @@ const { getSession, updateSession, listAllSessions, loadImages, markUsed } = req
 const { sendText, sendImage } = require('../services/whatsapp');
 const { messages } = require('./messages');
 
-// Padrões de comando
-const CMD_LIBERAR  = /^liberar\s+(\d+)/i;
-const CMD_FIM      = /^fim\s+(\d+)/i;
+const CMD_LIBERAR  = /^liberar\s+(\S+)/i;
+const CMD_FIM      = /^fim\s+(\S+)/i;
 const CMD_SESSOES  = /^sess[oõ]es$/i;
-const CMD_REATIVAR = /^reativar\s+(\d+)/i;
+const CMD_REATIVAR = /^reativar\s+(\S+)/i;
+
+// Resolve o JID correto para envio: usa o salvo na sessão ou reconstrói
+function resolveJid(phone) {
+  const session = getSession(phone);
+  if (session?.remoteJid) return session.remoteJid;
+  // Fallback: assume formato padrão @s.whatsapp.net
+  return `${phone}@s.whatsapp.net`;
+}
 
 async function handleOperatorCommand(operatorPhone, text) {
   const cmd = text.trim();
@@ -16,26 +23,24 @@ async function handleOperatorCommand(operatorPhone, text) {
   const liberarMatch = cmd.match(CMD_LIBERAR);
   if (liberarMatch) {
     const clientPhone = liberarMatch[1];
+    const clientJid   = resolveJid(clientPhone);
 
     const buffers = loadImages(clientPhone);
     if (!buffers || buffers.length === 0) {
-      await sendText(operatorPhone, messages.operatorLiberarNotFound(clientPhone));
+      await sendText(`${operatorPhone}@s.whatsapp.net`, messages.operatorLiberarNotFound(clientPhone));
       return;
     }
 
-    // Envia cada foto original (sem marca d'água) para o cliente
-    await sendText(clientPhone, messages.finalDelivery());
+    await sendText(clientJid, messages.finalDelivery());
     for (let i = 0; i < buffers.length; i++) {
-      await sendImage(clientPhone, buffers[i], `🌸 Foto ${i + 1} de ${buffers.length} — alta resolução`);
+      await sendImage(clientJid, buffers[i], `🌸 Foto ${i + 1} de ${buffers.length} — alta resolução`);
       if (i < buffers.length - 1) await new Promise((r) => setTimeout(r, 2000));
     }
 
-    // Atualiza estados
     updateSession(clientPhone, { state: 'DONE', finished: true });
     await markUsed(clientPhone, { hasFinalPhotos: true });
-
-    await sendText(operatorPhone, messages.operatorLiberarOk(clientPhone));
-    console.log(`[operator] Fotos liberadas para ${clientPhone} pelo operador ${operatorPhone}`);
+    await sendText(`${operatorPhone}@s.whatsapp.net`, messages.operatorLiberarOk(clientPhone));
+    console.log(`[operator] Fotos liberadas para ${clientPhone} (${clientJid})`);
     return;
   }
 
@@ -45,10 +50,10 @@ async function handleOperatorCommand(operatorPhone, text) {
     const target = fimMatch[1];
     const s = getSession(target);
     if (!s) {
-      await sendText(operatorPhone, `⚠️ Sessão não encontrada para ${target}.`);
+      await sendText(`${operatorPhone}@s.whatsapp.net`, `⚠️ Sessão não encontrada para ${target}.`);
     } else {
       updateSession(target, { finished: true });
-      await sendText(operatorPhone, `✅ Conversa com ${target} finalizada.`);
+      await sendText(`${operatorPhone}@s.whatsapp.net`, `✅ Conversa com ${target} finalizada.`);
     }
     return;
   }
@@ -57,7 +62,7 @@ async function handleOperatorCommand(operatorPhone, text) {
   if (CMD_SESSOES.test(cmd)) {
     const all = listAllSessions();
     if (all.length === 0) {
-      await sendText(operatorPhone, `Nenhuma sessão ativa no momento.`);
+      await sendText(`${operatorPhone}@s.whatsapp.net`, `Nenhuma sessão ativa no momento.`);
     } else {
       const lines = all
         .map((s) => {
@@ -65,7 +70,7 @@ async function handleOperatorCommand(operatorPhone, text) {
           return `• ${s.phone} → ${s.state}${s.estilo ? ` [${s.estilo}]` : ''}${status}`;
         })
         .join('\n');
-      await sendText(operatorPhone, `📋 *Sessões ativas:*\n${lines}`);
+      await sendText(`${operatorPhone}@s.whatsapp.net`, `📋 *Sessões ativas:*\n${lines}`);
     }
     return;
   }
@@ -76,16 +81,16 @@ async function handleOperatorCommand(operatorPhone, text) {
     const target = reativarMatch[1];
     const s = getSession(target);
     if (!s) {
-      await sendText(operatorPhone, `⚠️ Sessão não encontrada para ${target}.`);
+      await sendText(`${operatorPhone}@s.whatsapp.net`, `⚠️ Sessão não encontrada para ${target}.`);
     } else {
       updateSession(target, { finished: false });
-      await sendText(operatorPhone, `✅ Sessão de ${target} reativada.`);
+      await sendText(`${operatorPhone}@s.whatsapp.net`, `✅ Sessão de ${target} reativada.`);
     }
     return;
   }
 
   // ── ajuda ───────────────────────────────────────────────
-  await sendText(operatorPhone, messages.operatorHelp());
+  await sendText(`${operatorPhone}@s.whatsapp.net`, messages.operatorHelp());
 }
 
 module.exports = { handleOperatorCommand };
