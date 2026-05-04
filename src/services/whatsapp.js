@@ -9,21 +9,21 @@ function headers() {
   return { apikey: API_KEY, 'Content-Type': 'application/json' };
 }
 
-// Remove sufixos @s.whatsapp.net / @lid / @g.us
-// Evolution API v2 aceita o número limpo OU o JID completo com @lid
+// Remove sufixos @s.whatsapp.net / @lid / @g.us — Evolution API v1.8
+// espera apenas os dígitos no campo "number"
 function toNumber(jidOrPhone) {
-  return String(jidOrPhone).trim();
-  // Nota: NÃO removemos @lid aqui — v2 aceita o JID completo para roteamento
-  // Se quiser forçar strip: .replace(/@[\w.]+$/, '')
+  return String(jidOrPhone)
+    .replace(/@s\.whatsapp\.net$/, '')
+    .replace(/@lid$/, '')
+    .replace(/@g\.us$/, '')
+    .trim();
 }
 
-// Envia mensagem de texto — Evolution API v2
+// Envia mensagem de texto — Evolution API v1.8
 async function sendText(jidOrPhone, text) {
   const number = toNumber(jidOrPhone);
   const url    = `${BASE_URL}/message/sendText/${INSTANCE}`;
-
-  // v2: campo "text" direto (não mais "textMessage.text")
-  const body = { number, text };
+  const body   = { number, textMessage: { text } };
 
   console.log(`[whatsapp] sendText → ${number}`);
   console.log(`[whatsapp] sendText body: ${JSON.stringify(body)}`);
@@ -33,24 +33,33 @@ async function sendText(jidOrPhone, text) {
     console.log(`[whatsapp] sendText ✅ ${resp.status}`);
     return resp.data;
   } catch (err) {
-    console.error(`[whatsapp] sendText ❌ ${err.response?.status} — ${JSON.stringify(err.response?.data)}`);
+    const status = err.response?.status;
+    const data   = err.response?.data;
+    console.error(`[whatsapp] sendText ❌ ${status} — ${JSON.stringify(data)}`);
+
+    // @lid: Evolution API v1.8 não consegue enviar para IDs internos do Meta.
+    // Esses usuários não recebem resposta até upgrade para v2.
+    if (status === 400 && JSON.stringify(data).includes('exists')) {
+      console.error(`[whatsapp] ⚠️  Número @lid não suportado na v1.8. Upgrade para v2 necessário.`);
+      return null; // não lança erro — evita crashar o fluxo
+    }
     throw err;
   }
 }
 
-// Envia imagem a partir de Buffer JPEG — Evolution API v2
+// Envia imagem a partir de Buffer JPEG — Evolution API v1.8
 async function sendImage(jidOrPhone, imageBuffer, caption = '') {
   const number = toNumber(jidOrPhone);
   const url    = `${BASE_URL}/message/sendMedia/${INSTANCE}`;
-
-  // v2: campos de mídia no nível raiz (não mais "mediaMessage" aninhado)
-  const body = {
+  const body   = {
     number,
-    mediatype: 'image',
-    mimetype:  'image/jpeg',
-    caption,
-    media:     imageBuffer.toString('base64'),
-    fileName:  'ensaio.jpg',
+    mediaMessage: {
+      mediatype: 'image',
+      mimetype:  'image/jpeg',
+      caption,
+      media:     imageBuffer.toString('base64'),
+      fileName:  'ensaio.jpg',
+    },
   };
 
   console.log(`[whatsapp] sendImage → ${number} (${imageBuffer.length} bytes)`);
@@ -66,6 +75,10 @@ async function sendImage(jidOrPhone, imageBuffer, caption = '') {
     return resp.data;
   } catch (err) {
     console.error(`[whatsapp] sendImage ❌ ${err.response?.status} — ${JSON.stringify(err.response?.data)}`);
+    if (err.response?.status === 400 && JSON.stringify(err.response?.data).includes('exists')) {
+      console.error(`[whatsapp] ⚠️  @lid não suportado na v1.8.`);
+      return null;
+    }
     throw err;
   }
 }
