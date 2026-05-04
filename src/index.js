@@ -15,6 +15,39 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Diagnóstico de variáveis e conectividade com a Evolution API
+// Remova esta rota depois que tudo estiver funcionando
+app.get('/debug', async (_req, res) => {
+  const axios = require('axios');
+  const evoUrl  = process.env.EVOLUTION_API_URL || '(NÃO DEFINIDO)';
+  const evoKey  = process.env.EVOLUTION_API_KEY  ? '***' + process.env.EVOLUTION_API_KEY.slice(-4) : '(NÃO DEFINIDO)';
+  const evoInst = process.env.EVOLUTION_INSTANCE || '(NÃO DEFINIDO)';
+
+  let evoStatus = 'não testado';
+  let evoError  = null;
+  try {
+    const r = await axios.get(evoUrl.replace(/\/$/, '') + '/instance/fetchInstances', {
+      headers: { apikey: process.env.EVOLUTION_API_KEY },
+      timeout: 5000,
+    });
+    evoStatus = `OK (${r.status})`;
+  } catch (e) {
+    evoStatus = 'ERRO';
+    evoError  = e.message;
+  }
+
+  res.json({
+    EVOLUTION_API_URL:  evoUrl,
+    EVOLUTION_API_KEY:  evoKey,
+    EVOLUTION_INSTANCE: evoInst,
+    REPLICATE_API_TOKEN: process.env.REPLICATE_API_TOKEN ? '***' + process.env.REPLICATE_API_TOKEN.slice(-4) : '(NÃO DEFINIDO)',
+    OPERATOR_PHONE: process.env.OPERATOR_PHONE || '(NÃO DEFINIDO)',
+    MINHA_CHAVE_PIX: process.env.MINHA_CHAVE_PIX || '(NÃO DEFINIDO)',
+    evolution_connectivity: evoStatus,
+    evolution_error: evoError,
+  });
+});
+
 app.post('/webhook', async (req, res) => {
   // Responde imediatamente para a Evolution API não retentar
   res.sendStatus(200);
