@@ -9,55 +9,73 @@ function headers() {
   return { apikey: API_KEY, 'Content-Type': 'application/json' };
 }
 
-// Envia mensagem de texto — formato Evolution API v1.8+
-async function sendText(phone, text) {
-  const url = `${BASE_URL}/message/sendText/${INSTANCE}`;
-  console.log(`[whatsapp] sendText → ${phone}`);
-
-  const resp = await axios.post(
-    url,
-    {
-      number: phone,
-      textMessage: { text },   // v1.8+ exige objeto aninhado
-    },
-    { headers: headers(), timeout: 15_000 }
-  );
-  return resp.data;
+// Remove qualquer sufixo @s.whatsapp.net / @lid / @g.us do JID
+// A Evolution API v1.8 espera apenas os dígitos no campo "number"
+function toNumber(jidOrPhone) {
+  return String(jidOrPhone)
+    .replace(/@s\.whatsapp\.net$/, '')
+    .replace(/@lid$/, '')
+    .replace(/@g\.us$/, '')
+    .trim();
 }
 
-// Envia imagem a partir de um Buffer JPEG — formato Evolution API v1.8+
-async function sendImage(phone, imageBuffer, caption = '') {
-  const url = `${BASE_URL}/message/sendMedia/${INSTANCE}`;
-  console.log(`[whatsapp] sendImage → ${phone} (${imageBuffer.length} bytes)`);
+// Envia mensagem de texto — Evolution API v1.8+
+async function sendText(jidOrPhone, text) {
+  const number = toNumber(jidOrPhone);
+  const url    = `${BASE_URL}/message/sendText/${INSTANCE}`;
+  const body   = { number, textMessage: { text } };
 
-  const base64 = imageBuffer.toString('base64');
+  console.log(`[whatsapp] sendText → URL: ${url}`);
+  console.log(`[whatsapp] sendText → body: ${JSON.stringify(body)}`);
 
-  const resp = await axios.post(
-    url,
-    {
-      number: phone,
-      mediaMessage: {          // v1.8+ usa mediaMessage aninhado
-        mediatype: 'image',
-        mimetype:  'image/jpeg',
-        caption,
-        media:     base64,
-        fileName:  'ensaio.jpg',
-      },
+  try {
+    const resp = await axios.post(url, body, { headers: headers(), timeout: 15_000 });
+    console.log(`[whatsapp] sendText ✅ status ${resp.status}`);
+    return resp.data;
+  } catch (err) {
+    console.error(`[whatsapp] sendText ❌ status ${err.response?.status}`);
+    console.error(`[whatsapp] sendText ❌ response: ${JSON.stringify(err.response?.data)}`);
+    throw err;
+  }
+}
+
+// Envia imagem a partir de um Buffer JPEG — Evolution API v1.8+
+async function sendImage(jidOrPhone, imageBuffer, caption = '') {
+  const number = toNumber(jidOrPhone);
+  const url    = `${BASE_URL}/message/sendMedia/${INSTANCE}`;
+  const body   = {
+    number,
+    mediaMessage: {
+      mediatype: 'image',
+      mimetype:  'image/jpeg',
+      caption,
+      media:     imageBuffer.toString('base64'),
+      fileName:  'ensaio.jpg',
     },
-    {
+  };
+
+  console.log(`[whatsapp] sendImage → ${number} (${imageBuffer.length} bytes, caption: "${caption}")`);
+
+  try {
+    const resp = await axios.post(url, body, {
       headers: headers(),
       timeout: 60_000,
       maxBodyLength: Infinity,
       maxContentLength: Infinity,
-    }
-  );
-  return resp.data;
+    });
+    console.log(`[whatsapp] sendImage ✅ status ${resp.status}`);
+    return resp.data;
+  } catch (err) {
+    console.error(`[whatsapp] sendImage ❌ status ${err.response?.status}`);
+    console.error(`[whatsapp] sendImage ❌ response: ${JSON.stringify(err.response?.data)}`);
+    throw err;
+  }
 }
 
-// Baixa a mídia de uma mensagem recebida — retorna { base64, mimetype }
+// Baixa mídia de uma mensagem recebida — retorna { base64, mimetype }
 async function downloadMedia(messageKey) {
   const url = `${BASE_URL}/chat/getBase64FromMediaMessage/${INSTANCE}`;
-  console.log(`[whatsapp] downloadMedia mensagem ${messageKey.id}`);
+  console.log(`[whatsapp] downloadMedia → msg ${messageKey.id}`);
 
   const resp = await axios.post(
     url,
@@ -65,10 +83,9 @@ async function downloadMedia(messageKey) {
     { headers: headers(), timeout: 30_000 }
   );
 
-  const data    = resp.data;
-  const base64  = data.base64  || data?.message?.base64  || null;
+  const data     = resp.data;
+  const base64   = data.base64   || data?.message?.base64   || null;
   const mimetype = data.mimetype || data?.message?.mimetype || 'image/jpeg';
-
   return { base64, mimetype };
 }
 
