@@ -9,8 +9,8 @@ function headers() {
   return { apikey: API_KEY, 'Content-Type': 'application/json' };
 }
 
-// Remove sufixos @s.whatsapp.net / @lid / @g.us — Evolution API v2
-// aceita apenas os dígitos no campo "number"
+// Remove sufixos @s.whatsapp.net / @lid / @g.us — Evolution API v1.8
+// espera apenas os dígitos no campo "number"
 function toNumber(jidOrPhone) {
   return String(jidOrPhone)
     .replace(/@s\.whatsapp\.net$/, '')
@@ -19,11 +19,11 @@ function toNumber(jidOrPhone) {
     .trim();
 }
 
-// Envia mensagem de texto — Evolution API v2
+// Envia mensagem de texto — Evolution API v1.8
 async function sendText(jidOrPhone, text) {
   const number = toNumber(jidOrPhone);
   const url    = `${BASE_URL}/message/sendText/${INSTANCE}`;
-  const body   = { number, text };
+  const body   = { number, textMessage: { text } };
 
   console.log(`[whatsapp] sendText → ${number}`);
   console.log(`[whatsapp] sendText body: ${JSON.stringify(body)}`);
@@ -40,17 +40,19 @@ async function sendText(jidOrPhone, text) {
   }
 }
 
-// Envia imagem a partir de Buffer JPEG — Evolution API v2
+// Envia imagem a partir de Buffer JPEG — Evolution API v1.8
 async function sendImage(jidOrPhone, imageBuffer, caption = '') {
   const number = toNumber(jidOrPhone);
   const url    = `${BASE_URL}/message/sendMedia/${INSTANCE}`;
   const body   = {
     number,
-    mediatype: 'image',
-    mimetype:  'image/jpeg',
-    caption,
-    media:     imageBuffer.toString('base64'),
-    fileName:  'ensaio.jpg',
+    mediaMessage: {
+      mediatype: 'image',
+      mimetype:  'image/jpeg',
+      caption,
+      media:     imageBuffer.toString('base64'),
+      fileName:  'ensaio.jpg',
+    },
   };
 
   console.log(`[whatsapp] sendImage → ${number} (${imageBuffer.length} bytes)`);
